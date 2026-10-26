@@ -82,7 +82,7 @@ async def resolve_approval(approval_id: str, body: ApprovalResolve, mm: MindMesh
 
 
 @router.get("/blocked-actions")
-async def blocked_actions(limit: int = Query(200, le=1000), mm: MindMesh = Depends(project_mm)):
+async def blocked_actions(limit: int = Query(200, ge=1, le=1000), mm: MindMesh = Depends(project_mm)):
     events = await mm.repos.events.by_type([EventType.POLICY_DECISION, EventType.GUARD_TRIGGERED], limit=limit * 3)
     out = []
     for e in events:

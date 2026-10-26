@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,14 +13,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from ..config import DEFAULT_DEV_KEY, Settings
 from ..core.errors import InvalidTransition, NotFound, ToolArgumentError
 from ..sdk import MindMesh
+from .deps import KeyCache
 from .routers import control, evals, memories, runs, stats, workflows
+from .security import SecurityMiddleware
 
 log = logging.getLogger("mindmesh.server")
-
-DEFAULT_DEV_KEY = "mm_dev_local_key_change_me"
-DEFAULT_APPS = "mindmesh.demo.refund,mindmesh.demo.research"
 
 
 def install_apps(mm: MindMesh, modules: str) -> list[str]:
@@ -34,19 +33,37 @@ def install_apps(mm: MindMesh, modules: str) -> list[str]:
     return loaded
 
 
-def create_app(mm: MindMesh | None = None, *, apps: str | None = None, api_key: str | None = None) -> FastAPI:
-    mm = mm or MindMesh(project=os.environ.get("MINDMESH_PROJECT", "default"))
+def create_app(
+    mm: MindMesh | None = None,
+    *,
+    apps: str | None = None,
+    api_key: str | None = None,
+    settings: Settings | None = None,
+) -> FastAPI:
+    settings = settings or Settings.from_env()
+    if api_key is not None:
+        settings.api_key = api_key
+    if mm is not None:
+        settings.database_url, settings.database_url_set = mm.db.url, True
+    warnings = settings.validate()  # raises ConfigError on unsafe production settings
+    mm = mm or MindMesh(settings.database_url, project=settings.project)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await mm.init()
-        key = api_key or os.environ.get("MINDMESH_API_KEY", DEFAULT_DEV_KEY)
-        await mm.db.create_api_key(mm.project_id, "bootstrap", key)
+        if settings.auto_migrate:
+            await mm.init()
+        else:
+            await mm.init(create_schema=False)
+        key = settings.resolved_api_key()
+        await mm.db.set_bootstrap_key(mm.project_id, key)
         if key == DEFAULT_DEV_KEY:
-            log.warning("using the default development API key; set MINDMESH_API_KEY in production")
-        app.state.apps = install_apps(mm, apps if apps is not None else os.environ.get("MINDMESH_APPS", DEFAULT_APPS))
-        if os.environ.get("MINDMESH_MODEL"):
-            mm.set_model_override(os.environ["MINDMESH_MODEL"])
+            log.warning("using the public development API key; set MINDMESH_API_KEY (MINDMESH_ENV=production "
+                        "refuses to start without one)")
+        if warnings:
+            log.info("development mode; production would reject: %s", "; ".join(warnings))
+        app.state.apps = install_apps(mm, apps if apps is not None else settings.apps)
+        if settings.model:
+            mm.set_model_override(settings.model)
         yield
         for t in list(app.state.background):
             t.cancel()
@@ -58,17 +75,25 @@ def create_app(mm: MindMesh | None = None, *, apps: str | None = None, api_key: 
         description="Reliability and control plane for AI agents: memory, context, policies, orchestration, "
         "tracing, replay and evaluation.",
         lifespan=lifespan,
+        docs_url="/docs" if settings.docs else None,
+        redoc_url="/redoc" if settings.docs else None,
+        openapi_url="/openapi.json" if settings.docs else None,
     )
     app.state.mm = mm
-    app.state.key_cache = {}
+    app.state.settings = settings
+    app.state.key_cache = KeyCache()
     app.state.eval_jobs = {}
     app.state.background = set()
 
-    origins = os.environ.get("MINDMESH_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
     app.add_middleware(
-        CORSMiddleware, allow_origins=[o.strip() for o in origins if o.strip()], allow_credentials=False,
-        allow_methods=["*"], allow_headers=["*"],
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["X-API-Key", "Authorization", "Content-Type", "Last-Event-ID"],
+        max_age=600,
     )
+    app.add_middleware(SecurityMiddleware, max_body_bytes=settings.max_body_bytes)
 
     @app.exception_handler(NotFound)
     async def _nf(_: Request, exc: NotFound):
@@ -92,13 +117,17 @@ def create_app(mm: MindMesh | None = None, *, apps: str | None = None, api_key: 
 
     @app.get("/healthz", tags=["meta"])
     async def healthz():
-        return {"status": "ok", "database": "postgresql" if mm.db.is_postgres else "sqlite",
-                "apps": getattr(app.state, "apps", [])}
+        try:
+            await mm.db.ping()
+        except Exception:  # noqa: BLE001 - report unhealthy instead of a 500
+            log.exception("health check: database unreachable")
+            return JSONResponse({"status": "unavailable", "database": "unreachable"}, status_code=503)
+        return {"status": "ok", "database": "postgresql" if mm.db.is_postgres else "sqlite"}
 
     for r in (runs.router, memories.router, control.router, workflows.router, evals.router, stats.router):
         app.include_router(r, prefix="/api/v1")
 
-    studio = os.environ.get("MINDMESH_STUDIO_DIR")
+    studio = settings.studio_dir
     if studio and Path(studio, "index.html").exists():
         app.mount("/assets", StaticFiles(directory=Path(studio, "assets")), name="assets")
 

@@ -87,8 +87,12 @@ class MindMesh:
     # ------------------------------------------------------------------ lifecycle
 
     async def init(self, *, create_schema: bool = True) -> MindMesh:
+        """Connect and bind the project. ``create_schema`` applies pending migrations; without it the
+        schema must already be at the latest revision."""
         if create_schema:
-            await self.db.create_all()
+            await self.db.migrate()
+        else:
+            await self.db.require_current_schema()
         if not self.project_id:
             self._bind(await self.db.ensure_project(self.project_name))
         return self

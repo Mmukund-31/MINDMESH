@@ -74,5 +74,7 @@ serialized `RunState` (history, counters, pending approval), which allows the fo
   cosine scan is used.
 - **Models**: implement `ModelProvider.generate(GenerationRequest) -> ModelResponse`.
 - **Embeddings**: implement `Embedder.embed(texts) -> list[list[float]]`.
-- **Schema management**: tables (and the `vector` extension on PostgreSQL) are created idempotently with
-  `create_all()` at startup. Versioned migrations are not included yet; see the roadmap in the README.
+- **Schema management**: Alembic migrations in `src/mindmesh/storage/migrations/` (the first one also
+  enables the `vector` extension on PostgreSQL). `MindMesh.init()` and server startup apply pending
+  migrations; `mindmesh db upgrade` does it as a separate step. Change `storage/orm.py`, then
+  `alembic revision --autogenerate -m "…"` and review the generated script.

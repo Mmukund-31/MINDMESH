@@ -32,8 +32,8 @@ async def list_memories(
     subject_key: str | None = None,
     q: str | None = None,
     tag: str | None = None,
-    limit: int = Query(200, le=1000),
-    offset: int = 0,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     mm: MindMesh = Depends(project_mm),
 ):
     return await mm.memory.list(status=status, kind=kind, scope=scope, subject_key=subject_key, text=q, tag=tag,
@@ -47,7 +47,8 @@ async def create_memory(body: MemoryCreate, mm: MindMesh = Depends(project_mm)):
 
 @router.get("/memories/search")
 async def search_memories(
-    q: str, k: int = Query(10, le=100), scopes: list[str] | None = Query(None), include_inactive: bool = False,
+    q: str = Query(min_length=1, max_length=2000), k: int = Query(10, ge=1, le=100),
+    scopes: list[str] | None = Query(None), include_inactive: bool = False,
     mm: MindMesh = Depends(project_mm),
 ):
     hits = await mm.memory.search(q, k=k, scopes=scopes, include_inactive=include_inactive)

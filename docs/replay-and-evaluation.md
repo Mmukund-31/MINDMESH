@@ -5,7 +5,9 @@
 `GET /api/v1/runs/{id}/trace` groups the event log into steps with child nodes (context, model,
 policy, tool + retries, approvals, guards). Execution Studio renders it as a React Flow graph, a
 waterfall timeline, per-step cards, every context receipt, and raw events.
-`GET /api/v1/runs/{id}/stream` is a server-sent event stream for live runs.
+`GET /api/v1/runs/{id}/stream` is a server-sent event stream for live runs. Authenticate with the
+`X-API-Key` header, or (for `EventSource`, which cannot set headers) with a 60-second token from
+`POST /api/v1/runs/{id}/stream-token` passed as `?token=`. The token is valid only for that run.
 
 ## Safe replay vs rerun
 

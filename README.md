@@ -52,6 +52,40 @@ docker compose --profile llm up -d
 MINDMESH_MODEL=ollama:qwen3:8b MINDMESH_EMBEDDER=ollama:nomic-embed-text docker compose --profile llm up -d server
 ```
 
+## Production deployment
+
+The server image defaults to `MINDMESH_ENV=production`. In this mode the server **refuses to start** unless:
+
+| Variable | Requirement |
+|---|---|
+| `MINDMESH_DATABASE_URL` | a PostgreSQL URL (pgvector is enabled by the first migration) |
+| `MINDMESH_API_KEY` | at least 32 characters, not the development key. Rotating it revokes the previous value |
+| `MINDMESH_SECRET_KEY` | at least 32 characters; signs short-lived stream tokens |
+| `MINDMESH_CORS_ORIGINS` | explicit `scheme://host[:port]` origins (no `*`). Empty means same-origin only |
+
+Other settings: `MINDMESH_AUTO_MIGRATE` (default `true`), `MINDMESH_MAX_BODY_BYTES` (default 1 MiB),
+`MINDMESH_STREAM_TOKEN_TTL` (default 60 s) and `MINDMESH_DOCS` (OpenAPI docs; off in production by default).
+Generate secrets with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+
+API keys are accepted only in the `X-API-Key` or `Authorization: Bearer` headers, never in URLs. Browsers
+that use `EventSource` mint a token bound to one run with `POST /api/v1/runs/{id}/stream-token`, then open
+`GET /api/v1/runs/{id}/stream?token=…`. Additional keys: `mindmesh create-key --project <name>`; revoke them
+with `mindmesh revoke-key <key>`.
+
+### Schema migrations
+
+The schema is managed by Alembic migrations shipped inside the package. The server applies pending
+migrations on startup, serialised with a PostgreSQL advisory lock so replicas can start together.
+To migrate as a separate release step instead, set `MINDMESH_AUTO_MIGRATE=false` (the server then refuses to
+start on an outdated schema) and run:
+
+```bash
+mindmesh db upgrade      # apply pending migrations
+mindmesh db current      # show the revision; exits 1 if the database is behind
+```
+
+Databases created by earlier versions (before migrations) are adopted automatically on the first upgrade.
+
 ## The signature demonstration
 
 A support agent decides refund requests. The refund policy was updated (premium customers now have
@@ -144,12 +178,17 @@ docs/             architecture, SDK, memory/context, policies, replay, benchmark
 ## Testing
 
 ```bash
-pytest                                   # 75 tests, offline (SQLite + scripted model)
-pytest -m postgres                       # against docker compose Postgres (set MINDMESH_TEST_DATABASE_URL)
+pytest                                   # offline (SQLite + scripted model)
+pytest -m postgres                       # against a real PostgreSQL + pgvector (set MINDMESH_TEST_DATABASE_URL):
+                                         # migrations, vector search, project isolation, persistence
 cd studio && npm test                    # Vitest component tests
 cd studio && npx playwright test         # end-to-end: the signature demo through the UI
                                          # (PW_CHANNEL=msedge|chrome to use an installed browser)
 ```
+
+CI (`.github/workflows/ci.yml`) runs ruff, the Python suite on 3.12 and 3.13, Studio typecheck/tests/build,
+the PostgreSQL suite against `pgvector/pgvector:pg16` (including a database server restart and a
+production-mode server smoke test), and builds both Docker images.
 
 ## Documentation
 
@@ -161,7 +200,6 @@ cd studio && npx playwright test         # end-to-end: the signature demo throug
 
 ## Roadmap
 
-- Versioned schema migrations (currently `create_all()` on startup)
 - Streaming token output in Execution Studio
 - More benchmark suites (multi-agent research, long-horizon memory)
 - OpenTelemetry export of the event log

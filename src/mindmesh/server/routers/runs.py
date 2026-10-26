@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
@@ -10,10 +11,13 @@ from ...core.events import EventType
 from ...core.state import TERMINAL_RUN, RunStatus
 from ...core.types import Event, Run, RunCreate, RunFeedback, RunOverrides
 from ...sdk import MindMesh
-from ..deps import project_mm
+from ..deps import project_mm, stream_mm
+from ..tokens import issue_stream_token
 from ..trace import build_trace
 
 router = APIRouter(tags=["runs"])
+
+MAX_STREAM_S = 30 * 60  # clients reconnect with ?after=<last seq>
 
 
 @router.post("/runs", response_model=Run, status_code=201)
@@ -28,8 +32,8 @@ async def list_runs(
     kind: str | None = None,
     workflow_run_id: str | None = None,
     parent_run_id: str | None = None,
-    limit: int = Query(50, le=500),
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     mm: MindMesh = Depends(project_mm),
 ):
     return await mm.repos.runs.list(status=status, agent=agent, kind=kind, workflow_run_id=workflow_run_id,
@@ -58,7 +62,7 @@ async def resume_run(run_id: str, mm: MindMesh = Depends(project_mm)):
 
 
 @router.get("/runs/{run_id}/events", response_model=list[Event])
-async def run_events(run_id: str, after: int = 0, type: list[str] | None = Query(None), mm: MindMesh = Depends(project_mm)):
+async def run_events(run_id: str, after: int = Query(0, ge=0), type: list[str] | None = Query(None), mm: MindMesh = Depends(project_mm)):
     await mm.repos.runs.get(run_id)
     return await mm.repos.events.list(run_id, after_seq=after, types=type)
 
@@ -84,17 +88,34 @@ async def run_checkpoints(run_id: str, mm: MindMesh = Depends(project_mm)):
     return await mm.repos.runs.list_checkpoints(run_id)
 
 
+@router.post("/runs/{run_id}/stream-token")
+async def stream_token(run_id: str, request: Request, mm: MindMesh = Depends(project_mm)):
+    """A short-lived token for ``GET /runs/{run_id}/stream?token=…``, so EventSource clients (which cannot
+    send headers) never put the API key in a URL. Only valid for this run, in this project."""
+    await mm.repos.runs.get(run_id)
+    settings = request.app.state.settings
+    ttl = settings.stream_token_ttl_s
+    return {"token": issue_stream_token(settings.resolved_secret_key(), mm.project_id, run_id, ttl), "expires_in": ttl}
+
+
 @router.get("/runs/{run_id}/stream")
-async def stream_run(run_id: str, request: Request, after: int = 0, mm: MindMesh = Depends(project_mm)):
-    """Server-sent events: one ``event`` message per log entry, ``run`` messages on status changes."""
+async def stream_run(run_id: str, request: Request, after: int = Query(0, ge=0), mm: MindMesh = Depends(stream_mm)):
+    """Server-sent events: one ``event`` message per log entry, ``run`` messages on status changes.
+
+    Authenticate with the ``X-API-Key`` header or a ``token`` from ``POST /runs/{run_id}/stream-token``.
+    """
     await mm.repos.runs.get(run_id)
 
     async def gen():
         last = after
         last_status = None
         idle_after_terminal = 0
+        deadline = time.monotonic() + MAX_STREAM_S
         while True:
             if await request.is_disconnected():
+                return
+            if time.monotonic() > deadline:
+                yield f"event: timeout\ndata: {json.dumps({'after': last})}\n\n"
                 return
             for e in await mm.repos.events.list(run_id, after_seq=last, limit=500):
                 last = e.seq

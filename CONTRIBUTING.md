@@ -2,7 +2,11 @@
 
 1. `python -m venv .venv && pip install -e ".[server,dev]"` and `cd studio && npm install`
 2. Make your change, with tests:
-   - Python: `pytest` (unit, integration, security); `ruff check src tests`
+   - Python: `pytest` (unit, integration, security); `ruff check .`
+   - PostgreSQL: `docker compose up -d postgres` then
+     `MINDMESH_TEST_DATABASE_URL=postgresql://mindmesh:mindmesh@localhost:5432/mindmesh pytest -m postgres`
+   - Schema changes: edit `storage/orm.py`, then `alembic revision --autogenerate -m "…"`; review the script
+     (the migration tests fail if migrations and ORM drift apart)
    - Studio: `npm run typecheck && npm test`; end-to-end: `npx playwright test`
 3. Keep the core invariants:
    - every status change goes through `core.state.transition()`

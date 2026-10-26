@@ -14,6 +14,8 @@ from rich.table import Table
 app = typer.Typer(help="MINDMESH: reliability and control plane for AI agents.", no_args_is_help=True)
 demo_app = typer.Typer(help="Signature demonstrations.", no_args_is_help=True)
 app.add_typer(demo_app, name="demo")
+db_app = typer.Typer(help="Database schema migrations (Alembic).", no_args_is_help=True)
+app.add_typer(db_app, name="db")
 console = Console()
 
 
@@ -26,6 +28,13 @@ def serve(
     """Run the MindMesh API server (Studio talks to it)."""
     import uvicorn
 
+    from .config import ConfigError, Settings
+
+    try:
+        Settings.from_env().validate()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(2) from e
     uvicorn.run("mindmesh.server.app:main_app", factory=True, host=host, port=port, reload=reload)
 
 
@@ -226,6 +235,68 @@ def create_key(
             await mm.close()
 
     asyncio.run(go())
+
+
+@app.command("revoke-key")
+def revoke_key(
+    key: str = typer.Argument(..., help="The API key to revoke"),
+    database_url: str = typer.Option(None, envvar="MINDMESH_DATABASE_URL"),
+):
+    """Revoke an API key. Servers stop accepting it within 30 seconds (auth cache TTL)."""
+
+    async def go():
+        db = _db(database_url)
+        try:
+            return await db.revoke_api_key(key)
+        finally:
+            await db.dispose()
+
+    if not asyncio.run(go()):
+        console.print("[yellow]no such key[/]")
+        raise typer.Exit(1)
+    console.print("[green]revoked.[/]")
+
+
+def _db(database_url: str | None):
+    from .storage.db import Database
+
+    return Database(database_url or "sqlite:///mindmesh.db")
+
+
+@db_app.command("upgrade")
+def db_upgrade(
+    revision: str = typer.Argument("head"),
+    database_url: str = typer.Option(None, envvar="MINDMESH_DATABASE_URL"),
+):
+    """Apply migrations up to REVISION (default: head). Safe to run concurrently on PostgreSQL."""
+
+    async def go():
+        db = _db(database_url)
+        try:
+            await db.migrate(revision)
+            return await db.current_revision()
+        finally:
+            await db.dispose()
+
+    console.print(f"database at revision [bold]{asyncio.run(go())}[/]")
+
+
+@db_app.command("current")
+def db_current(database_url: str = typer.Option(None, envvar="MINDMESH_DATABASE_URL")):
+    """Show the database's revision and the latest available one; exit 1 if behind."""
+    from .storage.db import head_revision
+
+    async def go():
+        db = _db(database_url)
+        try:
+            return await db.current_revision()
+        finally:
+            await db.dispose()
+
+    current, head = asyncio.run(go()), head_revision()
+    console.print(f"current: [bold]{current}[/]  head: [bold]{head}[/]")
+    if current != head:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover

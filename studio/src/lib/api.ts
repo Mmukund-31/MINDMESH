@@ -144,9 +144,12 @@ export const api = {
   ),
 };
 
-export function streamUrl(runId: string, after = 0): string {
+/** EventSource cannot send headers, so the stream URL carries a short-lived token bound to this run
+ * (minted with the API key in a header) instead of the API key itself. */
+export async function streamUrl(runId: string, after = 0): Promise<string> {
+  const { token } = await post<{ token: string; expires_in: number }>(`/runs/${runId}/stream-token`);
   const u = new URL(`${BASE}/api/v1/runs/${runId}/stream`, window.location.origin);
   u.searchParams.set("after", String(after));
-  u.searchParams.set("api_key", getApiKey());
+  u.searchParams.set("token", token);
   return u.toString();
 }

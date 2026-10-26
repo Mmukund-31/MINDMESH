@@ -19,28 +19,40 @@ export function useRunStream(run: Run | undefined) {
 
   useEffect(() => {
     if (!runId || !active || typeof EventSource === "undefined") return;
-    const es = new EventSource(streamUrl(runId, lastSeq.current));
-    setLive(true);
-    es.addEventListener("event", (m) => {
-      const ev = JSON.parse((m as MessageEvent).data) as MMEvent;
-      lastSeq.current = Math.max(lastSeq.current, ev.seq);
-      setEvents((prev) => [...prev, ev]);
-      qc.invalidateQueries({ queryKey: ["trace", runId] });
-    });
-    es.addEventListener("run", () => {
-      qc.invalidateQueries({ queryKey: ["trace", runId] });
-      qc.invalidateQueries({ queryKey: ["runs"] });
-    });
-    const stop = () => {
-      es.close();
-      setLive(false);
+    let es: EventSource | undefined;
+    let cancelled = false;
+    const refresh = () => {
       qc.invalidateQueries({ queryKey: ["trace", runId] });
       qc.invalidateQueries({ queryKey: ["runs"] });
     };
-    es.addEventListener("end", stop);
-    es.onerror = stop;
+    streamUrl(runId, lastSeq.current)
+      .then((url) => {
+        if (cancelled) return;
+        es = new EventSource(url);
+        setLive(true);
+        es.addEventListener("event", (m) => {
+          const ev = JSON.parse((m as MessageEvent).data) as MMEvent;
+          lastSeq.current = Math.max(lastSeq.current, ev.seq);
+          setEvents((prev) => [...prev, ev]);
+          qc.invalidateQueries({ queryKey: ["trace", runId] });
+        });
+        es.addEventListener("run", refresh);
+        const stop = () => {
+          es?.close();
+          setLive(false);
+          refresh();
+        };
+        es.addEventListener("end", stop);
+        es.addEventListener("timeout", stop);
+        // tokens are single-connection: let the query refetch instead of EventSource's auto-reconnect
+        es.onerror = stop;
+      })
+      .catch(() => {
+        /* no stream token (auth/network): queries still poll */
+      });
     return () => {
-      es.close();
+      cancelled = true;
+      es?.close();
       setLive(false);
     };
   }, [runId, active, qc]);

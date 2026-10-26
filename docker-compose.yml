@@ -4,6 +4,9 @@
 #   docker compose run --rm server mindmesh demo seed        # optional demo data
 #   open http://localhost:5173  (API key: see MINDMESH_API_KEY below)
 #
+# This stack runs in development mode (the public dev API key is allowed). For anything reachable by others,
+# set MINDMESH_ENV=production plus MINDMESH_API_KEY, MINDMESH_SECRET_KEY and POSTGRES_PASSWORD (see README).
+#
 # Use the open-weight model for agents:   MINDMESH_MODEL=ollama:qwen3:8b docker compose up -d
 # Use Ollama embeddings for memory:       MINDMESH_EMBEDDER=ollama:nomic-embed-text docker compose up -d
 
@@ -14,7 +17,7 @@ services:
       POSTGRES_USER: mindmesh
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mindmesh}
       POSTGRES_DB: mindmesh
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mindmesh -d mindmesh"]
@@ -24,7 +27,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    ports: ["11434:11434"]
+    ports: ["127.0.0.1:11434:11434"]
     volumes: [ollama:/root/.ollama]
     profiles: ["llm"]
 
@@ -41,12 +44,14 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
+      MINDMESH_ENV: ${MINDMESH_ENV:-development}
       MINDMESH_DATABASE_URL: postgresql://mindmesh:${POSTGRES_PASSWORD:-mindmesh}@postgres:5432/mindmesh
       MINDMESH_API_KEY: ${MINDMESH_API_KEY:-mm_dev_local_key_change_me}
+      MINDMESH_SECRET_KEY: ${MINDMESH_SECRET_KEY:-}
       MINDMESH_MODEL: ${MINDMESH_MODEL:-}
       MINDMESH_EMBEDDER: ${MINDMESH_EMBEDDER:-hashing:384}
       OLLAMA_BASE_URL: http://ollama:11434
-      MINDMESH_CORS_ORIGINS: http://localhost:5173
+      MINDMESH_CORS_ORIGINS: ${MINDMESH_CORS_ORIGINS:-http://localhost:5173}
     ports: ["8000:8000"]
 
   studio:

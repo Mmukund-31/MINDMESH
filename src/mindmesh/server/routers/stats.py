@@ -4,7 +4,7 @@ import statistics
 from collections import Counter, defaultdict
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from ...core import clock
 from ...core.events import EventType
@@ -28,7 +28,7 @@ async def me(mm: MindMesh = Depends(project_mm)):
 
 
 @router.get("/stats/overview")
-async def overview(days: int = 14, mm: MindMesh = Depends(project_mm)):
+async def overview(days: int = Query(14, ge=1, le=365), mm: MindMesh = Depends(project_mm)):
     now = clock.now()
     since = now - timedelta(days=days)
     runs = [r for r in await mm.repos.runs.all_rows(since=since)]
