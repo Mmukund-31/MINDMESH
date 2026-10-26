@@ -1,0 +1,78 @@
+"""Deterministic, offline model provider.
+
+A *brain* is a plain function ``(GenerationRequest) -> dict | str`` that decides
+the next action **only from what the request exposes** (context items, prior
+tool results, task). This keeps benchmarks reproducible while still exercising
+the full runtime: if the context engine drops the evidence, the brain cannot
+see it and fails exactly like a real model would.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Callable
+from typing import Any
+
+from ..core.types import ModelResponse
+from .base import GenerationRequest, estimate_tokens
+
+Brain = Callable[[GenerationRequest], "dict[str, Any] | str"]
+
+_BRAINS: dict[str, Brain] = {}
+
+
+def brain(name: str) -> Callable[[Brain], Brain]:
+    """Register a scripted brain under ``scripted:<name>``."""
+
+    def deco(fn: Brain) -> Brain:
+        _BRAINS[name] = fn
+        return fn
+
+    return deco
+
+
+def get_brain(name: str) -> Brain:
+    if name not in _BRAINS:
+        raise KeyError(f"unknown scripted brain {name!r}; registered: {sorted(_BRAINS)}")
+    return _BRAINS[name]
+
+
+@brain("echo")
+def _echo(req: GenerationRequest) -> dict[str, Any]:
+    return {"type": "final_answer", "answer": f"echo: {req.task}"}
+
+
+class ScriptedProvider:
+    def __init__(self, brain_name: str = "echo", fn: Brain | None = None):
+        self.name = f"scripted:{brain_name}"
+        self._fn = fn or get_brain(brain_name)
+
+    async def generate(self, request: GenerationRequest) -> ModelResponse:
+        t0 = time.perf_counter()
+        out = self._fn(request)
+        text = out if isinstance(out, str) else json.dumps(out)
+        prompt = "".join(m.content for m in request.messages)
+        return ModelResponse(
+            text=text,
+            model=self.name,
+            tokens_in=estimate_tokens(prompt),
+            tokens_out=estimate_tokens(text),
+            latency_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+
+class RecordedProvider:
+    """Replays model outputs captured in a previous run (safe replay)."""
+
+    def __init__(self, responses: list[ModelResponse], name: str = "recorded"):
+        self.name = name
+        self._responses = list(responses)
+        self._i = 0
+
+    async def generate(self, request: GenerationRequest) -> ModelResponse:
+        if self._i >= len(self._responses):
+            raise RuntimeError("recorded model responses exhausted: execution diverged from the original run")
+        r = self._responses[self._i]
+        self._i += 1
+        return r

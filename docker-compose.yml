@@ -1,0 +1,59 @@
+# MINDMESH local stack: PostgreSQL + pgvector, Ollama (Qwen3 + local embeddings), API server, Studio.
+#
+#   docker compose up -d --build
+#   docker compose run --rm server mindmesh demo seed        # optional demo data
+#   open http://localhost:5173  (API key: see MINDMESH_API_KEY below)
+#
+# Use the open-weight model for agents:   MINDMESH_MODEL=ollama:qwen3:8b docker compose up -d
+# Use Ollama embeddings for memory:       MINDMESH_EMBEDDER=ollama:nomic-embed-text docker compose up -d
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: mindmesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mindmesh}
+      POSTGRES_DB: mindmesh
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindmesh -d mindmesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: [ollama:/root/.ollama]
+    profiles: ["llm"]
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on: [ollama]
+    environment: { OLLAMA_HOST: "ollama:11434" }
+    entrypoint: ["/bin/sh", "-c", "sleep 3 && ollama pull ${MINDMESH_OLLAMA_MODEL:-qwen3:8b} && ollama pull nomic-embed-text"]
+    profiles: ["llm"]
+    restart: "no"
+
+  server:
+    build: { context: ., dockerfile: Dockerfile.server }
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      MINDMESH_DATABASE_URL: postgresql://mindmesh:${POSTGRES_PASSWORD:-mindmesh}@postgres:5432/mindmesh
+      MINDMESH_API_KEY: ${MINDMESH_API_KEY:-mm_dev_local_key_change_me}
+      MINDMESH_MODEL: ${MINDMESH_MODEL:-}
+      MINDMESH_EMBEDDER: ${MINDMESH_EMBEDDER:-hashing:384}
+      OLLAMA_BASE_URL: http://ollama:11434
+      MINDMESH_CORS_ORIGINS: http://localhost:5173
+    ports: ["8000:8000"]
+
+  studio:
+    build: { context: ./studio }
+    depends_on: [server]
+    ports: ["5173:80"]
+
+volumes:
+  pgdata:
+  ollama:

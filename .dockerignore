@@ -1,0 +1,9 @@
+.venv
+.git
+studio
+bench/results
+**/__pycache__
+*.db
+graphify-out
+.pytest_cache
+.ruff_cache
