@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...sdk import MindMesh
-from ..deps import admin_mm
+from ..deps import admin_mm, audit
 
 router = APIRouter(tags=["keys"])
 
@@ -33,6 +33,7 @@ async def list_keys(request: Request, mm: MindMesh = Depends(admin_mm)):
 async def create_key(body: KeyCreate, request: Request, mm: MindMesh = Depends(admin_mm)):
     key = await mm.db.create_api_key(mm.project_id, body.name, role=body.role)
     row = next(r for r in await mm.db.list_api_keys(mm.project_id) if r.prefix == key[:10] and r.name == body.name)
+    await audit(request, mm, "key.created", "key", row.id, f"created {body.role} key '{body.name}' ({row.prefix}...)")
     return {**_meta(row, request.state.key_hash), "key": key}
 
 
@@ -44,5 +45,6 @@ async def revoke_key(key_id: str, request: Request, mm: MindMesh = Depends(admin
     if rows[key_id].key_hash == request.state.key_hash:
         raise HTTPException(409, "refusing to revoke the key used for this request (use another admin key)")
     await mm.db.revoke_api_key_id(key_id, mm.project_id)
+    await audit(request, mm, "key.revoked", "key", key_id, f"revoked {rows[key_id].role} key '{rows[key_id].name}'")
     request.app.state.key_cache.clear()  # effective immediately on this instance
     return Response(status_code=204)

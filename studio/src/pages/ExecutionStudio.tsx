@@ -3,33 +3,40 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  AlertTriangle,
   Ban,
   Check,
   Download,
   FlaskConical,
   GitCompare,
+  Info,
+  PauseCircle,
   Play,
   Plus,
   Radio,
   RotateCcw,
+  Search,
   ThumbsDown,
   ThumbsUp,
   X,
+  XCircle,
 } from "lucide-react";
 import { api, downloadJson } from "@/lib/api";
-import type { ContextReceipt, MMEvent, Run, TraceNode, TraceStep } from "@/lib/types";
+import type { ContextReceipt, TraceNode } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmptyState, ErrorNote, Json, KV, Mono, PageHeader, StatusBadge } from "@/components/common";
+import { EmptyState, ErrorNote, IdChip, Json, PageHeader, Panel, StatusBadge, StatusDot } from "@/components/common";
 import { ReceiptPanel } from "@/components/ReceiptPanel";
 import { TraceGraph, describeNode, stepTitle, type Selection } from "@/components/TraceGraph";
+import { TraceTimeline } from "@/components/TraceTimeline";
 import { useRunStream } from "@/hooks/useRunStream";
 import { EventFeed, RunModeBadge } from "@/components/LiveRun";
-import { cn, durationMs, fmtMs, fmtNum, parseTs, shortId, timeAgo } from "@/lib/utils";
+import { diagnose } from "@/lib/diagnose";
+import { cn, durationMs, fmtMs, fmtNum, shortId, timeAgo } from "@/lib/utils";
 
 const PRESETS = [
   { label: "Premium refund, 21 days (C-1042 / A-7731)", customer_id: "C-1042", order_id: "A-7731" },
@@ -114,62 +121,87 @@ function NewRunDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
   );
 }
 
+const FILTERS = [
+  { value: "", label: "All" },
+  { value: "failed", label: "Failed" },
+  { value: "waiting_approval", label: "Waiting" },
+  { value: "succeeded", label: "Succeeded" },
+];
+
 function RunList({ selected }: { selected?: string }) {
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");
+  const [q, setQ] = useState("");
   const runs = useQuery({
     queryKey: ["runs", status, kind],
-    queryFn: () => api.runs({ status, kind, limit: 100 }),
+    queryFn: () => api.runs({ status, kind, limit: 200 }),
     refetchInterval: 3000,
   });
+  const needle = q.trim().toLowerCase();
+  const shown = (runs.data ?? []).filter(
+    (r) => !needle || [r.id, r.agent_name, r.task, r.result?.answer ?? "", r.error ?? ""].some((t) => t.toLowerCase().includes(needle)),
+  );
   return (
-    <Card className="flex h-full min-h-0 flex-col">
-      <CardHeader className="gap-2">
-        <CardTitle>Runs</CardTitle>
-        <div className="flex gap-2">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="h-8 flex-1 text-xs">
-            <option value="">all statuses</option>
-            {["running", "waiting_approval", "succeeded", "failed", "cancelled"].map((s) => (
-              <option key={s}>{s}</option>
+    <Panel className="h-full min-h-0" bodyClassName="flex min-h-0 flex-col">
+      <div className="space-y-2 border-b p-2">
+        <div className="relative">
+          <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search runs, agents, answers…" className="h-7 pl-7 text-xs" />
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="flex flex-1 flex-wrap gap-0.5" role="radiogroup" aria-label="status filter">
+            {FILTERS.map((f) => (
+              <button
+                key={f.value}
+                role="radio"
+                aria-checked={status === f.value}
+                onClick={() => setStatus(f.value)}
+                className={cn(
+                  "rounded-sm px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground",
+                  status === f.value && "bg-accent text-foreground",
+                )}
+              >
+                {f.label}
+              </button>
             ))}
-          </Select>
-          <Select value={kind} onChange={(e) => setKind(e.target.value)} className="h-8 flex-1 text-xs">
-            <option value="">all kinds</option>
+          </div>
+          <Select value={kind} onChange={(e) => setKind(e.target.value)} className="h-6 px-1 text-[11px]" aria-label="kind">
+            <option value="">any kind</option>
             {["live", "rerun", "replay", "eval"].map((s) => (
               <option key={s}>{s}</option>
             ))}
           </Select>
         </div>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1 overflow-auto px-2">
-        {runs.data?.length === 0 && <EmptyState title="No runs yet">Start one with “New run”.</EmptyState>}
-        <ul className="space-y-1">
-          {runs.data?.map((r) => (
+      </div>
+      <ul className="min-h-0 flex-1 divide-y overflow-auto">
+        {runs.data && shown.length === 0 && <li className="px-3 py-8 text-center text-xs text-muted-foreground">No matching runs.</li>}
+        {shown.map((r) => {
+          const outcome = r.result?.answer ?? r.error;
+          return (
             <li key={r.id}>
               <Link
                 to={`/runs/${r.id}`}
-                className={cn(
-                  "block rounded-md border border-transparent px-2.5 py-2 hover:bg-muted/60",
-                  selected === r.id && "border-primary/40 bg-accent/60",
-                )}
+                className={cn("block border-l-2 border-transparent px-2.5 py-1.5 hover:bg-accent/40", selected === r.id && "border-l-primary bg-accent/60")}
                 data-testid="run-row"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <Mono className="text-muted-foreground">{shortId(r.id)}</Mono>
-                  <StatusBadge status={r.status} />
+                <div className="flex items-center gap-2">
+                  <StatusDot status={r.status} />
+                  <span className="truncate text-xs font-medium">{r.agent_name}</span>
+                  {r.kind !== "live" && <Badge variant="outline" className="px-1 py-0 text-[10px]">{r.kind}</Badge>}
+                  {r.feedback?.verdict === "incorrect" && <Badge variant="destructive" className="px-1 py-0 text-[10px]">flagged</Badge>}
+                  <span className="ml-auto shrink-0 text-[10.5px] text-muted-foreground">{timeAgo(r.created_at)}</span>
                 </div>
-                <div className="mt-1 line-clamp-1 text-xs">{r.result?.answer ?? r.error ?? r.task}</div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-muted-foreground">
-                  <RunModeBadge run={{ kind: r.kind, model: r.config.agent_spec?.model }} />
-                  <span>{r.agent_name}</span>·<span>{r.kind}</span>·<span>{timeAgo(r.created_at)}</span>
-                  {r.feedback?.verdict === "incorrect" && <Badge variant="destructive">flagged</Badge>}
+                <div className={cn("mt-0.5 truncate pl-4 text-xs", r.error ? "text-destructive" : outcome ? "" : "text-muted-foreground")}>
+                  {outcome ?? r.task}
                 </div>
+                <div className="truncate pl-4 text-[10.5px] text-muted-foreground">{outcome ? r.task : r.status.replace("_", " ")}</div>
               </Link>
             </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
+          );
+        })}
+      </ul>
+      <div className="border-t px-3 py-1 text-[10.5px] text-muted-foreground">{shown.length} runs</div>
+    </Panel>
   );
 }
 
@@ -186,7 +218,7 @@ function NodeDetail({ sel, receipt }: { sel: Selection; receipt?: ContextReceipt
           <StatusBadge status={s.status} />
           <span className="text-xs text-muted-foreground">{fmtMs(durationMs(s.started_at, s.ended_at))}</span>
         </div>
-        {s.action?.thought && <p className="text-sm italic text-muted-foreground">“{s.action.thought}”</p>}
+        {s.action?.thought && <p className="text-sm text-muted-foreground italic">“{s.action.thought}”</p>}
         <Label>Action</Label>
         <Json value={s.action} />
         <Label>Outcome</Label>
@@ -206,25 +238,12 @@ function NodeDetail({ sel, receipt }: { sel: Selection; receipt?: ContextReceipt
         <>
           <Label>Model response</Label>
           <Json value={p.response} />
-          <Label>Prompt messages</Label>
-          {(p.messages ?? []).map((m: { role: string; content: string }, i: number) => (
-            <div key={i} className="space-y-1">
-              <Badge variant="outline">{m.role}</Badge>
-              <Json value={m.content} className="max-h-60" />
-            </div>
-          ))}
         </>
       )}
       {n.kind === "tool" && (
         <>
           <Label>Arguments</Label>
           <Json value={n.args ?? p.args} />
-          {n.retries && (
-            <>
-              <Label>Retries</Label>
-              <Json value={n.retries} />
-            </>
-          )}
           <Label>{n.status === "ok" ? "Result" : "Error"}</Label>
           <Json value={n.status === "ok" ? n.result : (n.error ?? p.error)} />
         </>
@@ -234,35 +253,17 @@ function NodeDetail({ sel, receipt }: { sel: Selection; receipt?: ContextReceipt
   );
 }
 
-function Timeline({ events, run }: { events: MMEvent[]; run: Run }) {
-  const t0 = events.length ? parseTs(events[0].ts).getTime() : 0;
-  const tEnd = events.length ? Math.max(...events.map((e) => parseTs(e.ts).getTime() + (e.duration_ms ?? 0))) : 1;
-  const span = Math.max(1, tEnd - t0);
+function Fact({ k, children }: { k: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-0.5" data-testid="timeline">
-      {events.map((e) => {
-        const start = parseTs(e.ts).getTime() - (e.duration_ms ?? 0) - t0;
-        return (
-          <div key={e.id} className="grid grid-cols-[42px_150px_1fr_70px] items-center gap-2 text-[11px]">
-            <span className="text-right font-mono text-muted-foreground">#{e.seq}</span>
-            <span className={cn("truncate font-medium", e.type.includes("fail") || e.payload.effect === "deny" ? "text-destructive" : "")}>
-              {e.type}
-              {e.step ? <span className="text-muted-foreground"> · s{e.step}</span> : null}
-            </span>
-            <div className="relative h-3 rounded bg-muted/50">
-              <div
-                className="absolute top-0 h-3 rounded bg-primary/70"
-                style={{ left: `${(Math.max(0, start) / span) * 100}%`, width: `max(3px, ${((e.duration_ms ?? 0) / span) * 100}%)` }}
-              />
-            </div>
-            <span className="text-right tabular-nums text-muted-foreground">{e.duration_ms ? fmtMs(e.duration_ms) : ""}</span>
-          </div>
-        );
-      })}
-      {events.length === 0 && <EmptyState title={run.status === "pending" ? "Waiting to start…" : "No events"} />}
+    <div className="min-w-0">
+      <dt className="text-[10.5px] text-muted-foreground">{k}</dt>
+      <dd className="truncate text-xs font-medium" title={typeof children === "string" ? children : undefined}>{children}</dd>
     </div>
   );
 }
+
+const TONE_ICON = { bad: XCircle, warn: AlertTriangle, info: Info } as const;
+const TONE_CLASS = { bad: "text-destructive", warn: "text-warning", info: "text-info" } as const;
 
 function RunDetail({ runId }: { runId: string }) {
   const qc = useQueryClient();
@@ -275,6 +276,8 @@ function RunDetail({ runId }: { runId: string }) {
   const events = useQuery({ queryKey: ["events", runId, trace.data?.run.status, trace.data?.steps.length], queryFn: () => api.events(runId) });
   const { live, events: streamed } = useRunStream(trace.data?.run);
   const [sel, setSel] = useState<Selection | null>(null);
+  const [tab, setTab] = useState("trace");
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const receipts = useMemo(() => {
     const m = new Map<number, ContextReceipt>();
     (events.data ?? []).filter((e) => e.type === "context.assembled").forEach((e) => m.set(e.step ?? 0, e.payload as ContextReceipt));
@@ -295,70 +298,60 @@ function RunDetail({ runId }: { runId: string }) {
   });
 
   if (trace.error) return <ErrorNote error={trace.error} />;
-  if (!trace.data) return <Card className="h-96 animate-pulse" />;
+  if (!trace.data) return <Skeleton className="h-96" />;
   const { run, steps, approvals, children } = trace.data;
   const spec = run.config.agent_spec;
   const pending = approvals.filter((a) => a.status === "pending");
-  const lastReceipt = receipts.size ? receipts.get(Math.max(...receipts.keys())) : undefined;
+  const findings = diagnose(run, steps);
   const selectedId =
     sel?.kind === "run" ? "run" : sel?.kind === "step" ? `step-${sel.step.step}` : sel?.kind === "node" ? `step-${sel.step.step}-n${sel.step.nodes.indexOf(sel.node)}` : undefined;
   const selReceipt = sel?.kind === "node" && sel.node.kind === "context" ? (sel.node.event?.payload as ContextReceipt) : undefined;
+  const toggle = (key: string) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  const focus = (key: string) => {
+    setTab("trace");
+    setOpen((o) => new Set(o).add(key));
+    setTimeout(() => document.querySelector(`[data-testid="span-${key}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+  };
+  const terminal = ["succeeded", "failed", "cancelled"].includes(run.status);
+  const bad = run.status === "failed" || run.feedback?.verdict === "incorrect";
 
   return (
     <div className="min-w-0 space-y-3">
-      <Card>
-        <CardContent className="space-y-3 pt-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <Mono className="text-sm" data-testid="run-id">{run.id}</Mono>
-                <StatusBadge status={run.status} />
-                <RunModeBadge run={{ kind: run.kind, model: spec?.model }} />
-                <Badge variant="outline">{run.kind}</Badge>
-                {run.label?.startsWith("experiment:") && <Badge variant="outline">{run.label}</Badge>}
-                {live && (
-                  <Badge variant="info">
-                    <Radio className="animate-pulse" /> live
-                  </Badge>
-                )}
-                {run.feedback && (
-                  <Badge variant={run.feedback.verdict === "incorrect" ? "destructive" : "success"}>
-                    human: {run.feedback.verdict}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-sm">{run.task}</p>
-              {run.parent_run_id && (
-                <p className="text-xs text-muted-foreground">
-                  {run.kind} of{" "}
-                  <Link className="text-primary hover:underline" to={`/runs/${run.parent_run_id}`}>
-                    {shortId(run.parent_run_id)}
-                  </Link>
-                </p>
+      <Panel>
+        <div className="space-y-2.5 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <StatusBadge status={run.status} />
+              <span className="text-sm font-semibold">{run.agent_name}</span>
+              <RunModeBadge run={{ kind: run.kind, model: spec?.model }} />
+              {run.kind !== "live" && <Badge variant="outline">{run.kind}</Badge>}
+              {run.label && <Badge variant="outline" className="max-w-56 truncate">{run.label}</Badge>}
+              {live && (
+                <Badge variant="info">
+                  <Radio className="animate-pulse" /> live
+                </Badge>
               )}
+              <span data-testid="run-id"><IdChip id={run.id} /></span>
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1">
               {["pending", "running", "waiting_approval"].includes(run.status) && (
                 <Button size="sm" variant="destructive" onClick={() => cancel.mutate()}>
                   <Ban /> Cancel
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={() => rerun.mutate()} disabled={rerun.isPending} data-testid="rerun">
+              <Button size="sm" variant="outline" onClick={() => rerun.mutate()} disabled={rerun.isPending} data-testid="rerun"
+                title="Execute the task again, live, with the current memory, policies and agent">
                 <RotateCcw /> Rerun
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => replay.mutate()}
-                disabled={!["succeeded", "failed", "cancelled"].includes(run.status)}
-                title="Re-execute with recorded model & tool outputs (no side effects)"
-              >
+              <Button size="sm" variant="outline" onClick={() => replay.mutate()} disabled={!terminal}
+                title="Re-execute with recorded model and tool outputs: nothing runs, no side effects">
                 <FlaskConical /> Safe replay
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => downloadJson(`/runs/${run.id}/export`, `${run.id}.json`)}
-                title="Download the run as JSON (mindmesh.run/v1): summary, agent spec, every event. Import it elsewhere with `mindmesh runs import`."
-                data-testid="export-run">
-                <Download /> Export JSON
               </Button>
               {run.parent_run_id && (
                 <Button size="sm" variant="outline" asChild>
@@ -367,32 +360,53 @@ function RunDetail({ runId }: { runId: string }) {
                   </Link>
                 </Button>
               )}
-              <Button size="sm" variant="ghost" onClick={() => fb.mutate("correct")} title="Mark outcome correct">
+              <Button size="sm" variant="ghost" onClick={() => downloadJson(`/runs/${run.id}/export`, `${run.id}.json`)}
+                title="Download as JSON (mindmesh.run/v1); import elsewhere with `mindmesh runs import`" data-testid="export-run">
+                <Download /> Export
+              </Button>
+              <Button size="icon" variant="ghost" className="size-7" onClick={() => fb.mutate("correct")} title="Mark outcome correct" aria-label="Mark outcome correct">
                 <ThumbsUp />
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => fb.mutate("incorrect")} title="Flag outcome incorrect">
+              <Button size="icon" variant="ghost" className="size-7" onClick={() => fb.mutate("incorrect")} title="Flag outcome incorrect" aria-label="Flag outcome incorrect">
                 <ThumbsDown />
               </Button>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            {run.task}
+            {run.parent_run_id && (
+              <>
+                {" · "}
+                {run.kind} of{" "}
+                <Link className="text-primary hover:underline" to={`/runs/${run.parent_run_id}`}>
+                  {shortId(run.parent_run_id)}
+                </Link>
+              </>
+            )}
+          </p>
           {(run.result?.answer || run.error) && (
             <div
               className={cn(
-                "rounded-lg border p-3 text-sm",
-                run.error ? "border-destructive/40 bg-destructive/8" : "border-success/30 bg-success/5",
+                "rounded-md border-l-2 px-3 py-2 text-[13px]",
+                run.error ? "border-l-destructive bg-destructive/8" : bad ? "border-l-warning bg-warning/8" : "border-l-success bg-success/6",
               )}
               data-testid="run-answer"
             >
               {run.result?.answer ?? run.error}
+              {run.feedback && (
+                <div className={cn("mt-1 text-xs", run.feedback.verdict === "incorrect" ? "text-warning" : "text-success")}>
+                  human verdict: {run.feedback.verdict}
+                  {run.feedback.note && <> · “{run.feedback.note}”</>}
+                </div>
+              )}
             </div>
           )}
           {pending.map((a) => (
-            <div key={a.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm">
-              <span className="font-medium">Approval needed:</span>
-              <Mono>
-                {a.tool} {JSON.stringify(a.args)}
-              </Mono>
-              <span className="text-xs text-muted-foreground">{a.reason}</span>
+            <div key={a.id} className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/8 px-3 py-2 text-xs">
+              <PauseCircle className="size-4 text-warning" />
+              <span className="font-medium">Waiting for approval:</span>
+              <span className="font-mono">{a.tool} {JSON.stringify(a.args)}</span>
+              <span className="text-muted-foreground">{a.reason}</span>
               <div className="ml-auto flex gap-1.5">
                 <Button size="sm" variant="success" onClick={() => resolve.mutate({ id: a.id, ok: true })} data-testid="approve">
                   <Check /> Approve
@@ -403,82 +417,72 @@ function RunDetail({ runId }: { runId: string }) {
               </div>
             </div>
           ))}
-          <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-            <KV k="agent">{run.agent_name}</KV>
-            <KV k="model">{spec?.model}</KV>
-            <KV k="steps / tool calls">
-              {run.steps} / {run.tool_calls}
-            </KV>
-            <KV k="tokens">{fmtNum(run.tokens_in + run.tokens_out)}</KV>
-            <KV k="duration">{fmtMs(durationMs(run.started_at, run.ended_at))}</KV>
-            <KV k="memory scopes">{spec?.memory_scopes.join(", ")}</KV>
-            <KV k="context budget">{spec?.context.budget_tokens} tok</KV>
-            <KV k="policies">{spec?.enforce_policies ? "enforced" : "off"}</KV>
-          </div>
+          <dl className="grid grid-cols-3 gap-x-4 gap-y-2 border-t pt-2.5 sm:grid-cols-4 xl:grid-cols-8">
+            <Fact k="duration"><span className="font-mono">{fmtMs(durationMs(run.started_at, run.ended_at))}</span></Fact>
+            <Fact k="steps">{run.steps}</Fact>
+            <Fact k="tool calls">{run.tool_calls}</Fact>
+            <Fact k="tokens">{fmtNum(run.tokens_in + run.tokens_out)}</Fact>
+            <Fact k="model"><span className="font-mono" title={spec?.model}>{spec?.model}</span></Fact>
+            <Fact k="memory scopes">{spec?.memory_scopes.join(", ") ?? ""}</Fact>
+            <Fact k="context budget">{`${spec?.context.budget_tokens} tok · ${spec?.context.strategy}`}</Fact>
+            <Fact k="policies">{spec?.enforce_policies ? "enforced" : "off"}</Fact>
+          </dl>
           {children.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <span className="text-muted-foreground">Derived runs:</span>
               {children.map((c) => (
-                <Link key={c.id} to={`/runs/${c.id}`} className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 hover:bg-muted">
-                  {c.kind} <Mono>{shortId(c.id)}</Mono> <StatusBadge status={c.status} />
+                <Link key={c.id} to={`/runs/${c.id}`} className="inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 hover:bg-accent/50">
+                  <StatusDot status={c.status} /> {c.kind} <span className="font-mono text-[11px] text-muted-foreground">{shortId(c.id)}</span>
                 </Link>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
-      <Tabs defaultValue="graph">
+      {findings.length > 0 && (
+        <Panel title={bad || findings.some((f) => f.tone === "bad") ? "What went wrong" : "Worth a look"} icon={AlertTriangle} data-testid="findings"
+          description="Derived from the recorded trace. Click a finding to open its span.">
+          <ul className="divide-y">
+            {findings.map((f, i) => {
+              const Icon = TONE_ICON[f.tone];
+              return (
+                <li key={i}>
+                  <button
+                    type="button"
+                    disabled={!f.focus}
+                    onClick={() => f.focus && focus(f.focus)}
+                    className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-accent/40 disabled:hover:bg-transparent"
+                  >
+                    <Icon className={cn("mt-0.5 size-3.5 shrink-0", TONE_CLASS[f.tone])} />
+                    <span className="min-w-0">
+                      <span className="text-[13px]">{f.title}</span>
+                      {f.detail && <span className="block text-xs break-words text-muted-foreground">{f.detail}</span>}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </Panel>
+      )}
+
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="graph">Execution graph</TabsTrigger>
-          <TabsTrigger value="steps">Steps</TabsTrigger>
+          <TabsTrigger value="trace" data-testid="tab-trace">Trace</TabsTrigger>
           <TabsTrigger value="context" data-testid="tab-context">
-            Context receipts
+            Context receipts <span className="text-muted-foreground tabular-nums">{receipts.size}</span>
           </TabsTrigger>
-          <TabsTrigger value="timeline">Timeline</TabsTrigger>
-          <TabsTrigger value="events">Raw events</TabsTrigger>
+          <TabsTrigger value="graph">Graph</TabsTrigger>
+          <TabsTrigger value="feed">
+            Event feed {live && <Radio className="animate-pulse text-info" />}
+          </TabsTrigger>
+          <TabsTrigger value="events">Raw events <span className="text-muted-foreground tabular-nums">{events.data?.length ?? ""}</span></TabsTrigger>
         </TabsList>
-        <TabsContent value="graph">
-          <div className="grid gap-3 2xl:grid-cols-[1fr_340px]">
-            <div className="min-w-0">
-              <TraceGraph run={run} steps={steps} onSelect={setSel} selectedId={selectedId} />
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Click a step or detail node to inspect inputs, outputs, policy decisions and the context receipt.
-              </p>
-            </div>
-            <Card className="p-3">
-              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
-                What happened
-                {live && (
-                  <Badge variant="info">
-                    <Radio className="animate-pulse" /> streaming
-                  </Badge>
-                )}
-              </div>
-              <EventFeed events={live ? streamed : (events.data ?? streamed)} live={live} className="max-h-[420px]" />
-            </Card>
-          </div>
-        </TabsContent>
-        <TabsContent value="steps" className="space-y-2">
-          {steps.map((s: TraceStep) => (
-            <Card key={s.step} className="p-3">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-semibold">Step {s.step}</span>
-                <span>{stepTitle(s)}</span>
-                <StatusBadge status={s.status} />
-                {s.action?.args && <Mono className="text-muted-foreground">{JSON.stringify(s.action.args)}</Mono>}
-              </div>
-              {s.action?.thought && <p className="mt-1 text-xs italic text-muted-foreground">“{s.action.thought}”</p>}
-              {s.outcome?.policy && (
-                <p className="mt-1 text-xs">
-                  policy: <StatusBadge status={s.outcome.policy.effect} /> {s.outcome.policy.rule_name} — {s.outcome.policy.reason}
-                </p>
-              )}
-              {s.outcome && s.outcome.status !== "final" && (
-                <Json value={s.outcome.result ?? s.outcome.error ?? s.outcome} className="mt-2 max-h-40" />
-              )}
-            </Card>
-          ))}
+        <TabsContent value="trace">
+          <Panel>
+            <TraceTimeline run={run} steps={steps} open={open} onToggle={toggle} />
+          </Panel>
         </TabsContent>
         <TabsContent value="context">
           {receipts.size === 0 ? (
@@ -486,20 +490,24 @@ function RunDetail({ runId }: { runId: string }) {
           ) : (
             <div className="grid gap-3 xl:grid-cols-2">
               {[...receipts.entries()].sort((a, b) => b[0] - a[0]).map(([step, r]) => (
-                <Card key={step} className={cn("p-3", r === lastReceipt && "ring-1 ring-primary/40")}>
+                <Panel key={step} bodyClassName="p-3">
                   <ReceiptPanel receipt={r} />
-                </Card>
+                </Panel>
               ))}
             </div>
           )}
         </TabsContent>
-        <TabsContent value="timeline">
-          <Card className="p-3">
-            <Timeline events={events.data ?? []} run={run} />
-          </Card>
+        <TabsContent value="graph">
+          <TraceGraph run={run} steps={steps} onSelect={setSel} selectedId={selectedId} />
+          <p className="mt-1.5 text-[11px] text-muted-foreground">Click a node to inspect it.</p>
+        </TabsContent>
+        <TabsContent value="feed">
+          <Panel bodyClassName="p-3">
+            <EventFeed events={live ? streamed : (events.data ?? streamed)} live={live} className="max-h-[560px]" />
+          </Panel>
         </TabsContent>
         <TabsContent value="events">
-          <Json value={events.data ?? []} className="max-h-[600px]" />
+          <Json value={events.data ?? []} className="max-h-[640px]" />
         </TabsContent>
       </Tabs>
 
@@ -514,26 +522,26 @@ export default function ExecutionStudio() {
   const { runId } = useParams();
   const [open, setOpen] = useState(false);
   return (
-    <div className="mx-auto max-w-[1500px]">
+    <div>
       <PageHeader
         title="Execution Studio"
-        description="Execution graphs, timelines, model calls, tool calls, policy decisions and context receipts for every run."
+        description="Every run: outcome first, then the trace, context, policies and raw events."
         icon={Activity}
         actions={
-          <Button onClick={() => setOpen(true)} data-testid="new-run">
+          <Button size="sm" onClick={() => setOpen(true)} data-testid="new-run">
             <Plus /> New run
           </Button>
         }
       />
-      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
-        <div className="lg:sticky lg:top-0 lg:h-[calc(100vh-150px)]">
+      <div className="grid gap-3 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <div className="h-[340px] lg:sticky lg:top-0 lg:h-[calc(100vh-112px)]">
           <RunList selected={runId} />
         </div>
         {runId ? (
           <RunDetail runId={runId} key={runId} />
         ) : (
           <EmptyState title="Select a run" icon={Activity}>
-            Pick a run on the left to see its execution graph, or start a new run.
+            Pick a run to see its outcome, then drill into the trace, context receipts and policy decisions.
           </EmptyState>
         )}
       </div>

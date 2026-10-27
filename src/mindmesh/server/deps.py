@@ -22,13 +22,13 @@ def allow_read_only(endpoint):
 
 
 class KeyCache:
-    """Short-lived ``key hash -> (project id, role)`` cache, so revoked keys stop working within the TTL."""
+    """Short-lived ``key hash -> (project id, role, key name)`` cache, so revoked keys stop working within the TTL."""
 
     def __init__(self, ttl_s: float = KEY_CACHE_TTL_S, max_size: int = KEY_CACHE_MAX):
         self.ttl_s, self.max_size = ttl_s, max_size
-        self._entries: dict[str, tuple[tuple[str, str], float]] = {}
+        self._entries: dict[str, tuple[tuple[str, str, str], float]] = {}
 
-    def get(self, key_hash: str) -> tuple[str, str] | None:
+    def get(self, key_hash: str) -> tuple[str, str, str] | None:
         hit = self._entries.get(key_hash)
         if hit is None:
             return None
@@ -37,7 +37,7 @@ class KeyCache:
             return None
         return hit[0]
 
-    def put(self, key_hash: str, identity: tuple[str, str]) -> None:
+    def put(self, key_hash: str, identity: tuple[str, str, str]) -> None:
         if len(self._entries) >= self.max_size:
             self._entries.clear()
         self._entries[key_hash] = (identity, time.monotonic() + self.ttl_s)
@@ -60,8 +60,8 @@ async def _project_for_key(request: Request, mm: MindMesh, key: str) -> str:
         if identity is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid API key")
         cache.put(h, identity)
-    project_id, role = identity
-    request.state.key_role, request.state.key_hash = role, h
+    project_id, role, name = identity
+    request.state.key_role, request.state.key_hash, request.state.key_name = role, h, name
     if role != "admin" and request.method not in SAFE_METHODS:
         if not getattr(request.scope.get("endpoint"), "allow_read_only", False):
             raise HTTPException(status.HTTP_403_FORBIDDEN,
@@ -116,3 +116,11 @@ async def admin_mm(request: Request, mm: MindMesh = Depends(project_mm)) -> Mind
     if request.state.key_role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "this endpoint needs an admin API key")
     return mm
+
+
+async def audit(request: Request, mm: MindMesh, action: str, target_type: str, target_id: str | None, summary: str,
+                **details) -> None:
+    """Record a change made through the API in the project's audit trail, attributed to the calling key."""
+    actor = getattr(request.state, "key_name", None) or "stream-token"
+    await mm.repos.audit.record(actor=f"key:{actor}", action=action, target_type=target_type, target_id=target_id,
+                                summary=summary, details=details)

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.types import ContextConfig, Memory, MemoryCreate, MemoryUpdate
 from ...memory.impact import memory_change_impact
 from ...sdk import MindMesh
-from ..deps import allow_read_only, project_mm
+from ..deps import allow_read_only, audit, project_mm
 
 router = APIRouter(tags=["memory"])
 
@@ -48,8 +48,11 @@ async def list_memories(
 
 
 @router.post("/memories", response_model=Memory, status_code=201)
-async def create_memory(body: MemoryCreate, mm: MindMesh = Depends(project_mm)):
-    return await mm.memory.add(body)
+async def create_memory(body: MemoryCreate, request: Request, mm: MindMesh = Depends(project_mm)):
+    m = await mm.memory.add(body)
+    await audit(request, mm, "memory.created", "memory", m.id,
+                f"added {m.kind} '{m.subject_key or m.id}' in scope {m.scope}", content=m.content[:500])
+    return m
 
 
 @router.get("/memories/search")
@@ -72,8 +75,11 @@ async def memory_conflicts(mm: MindMesh = Depends(project_mm)):
 
 
 @router.post("/memories/expire")
-async def expire_memories(mm: MindMesh = Depends(project_mm)):
-    return {"expired": await mm.memory.expire_due()}
+async def expire_memories(request: Request, mm: MindMesh = Depends(project_mm)):
+    n = await mm.memory.expire_due()
+    if n:
+        await audit(request, mm, "memory.expired", "memory", None, f"expired {n} memories past their expiry")
+    return {"expired": n}
 
 
 @router.get("/memories/{memory_id}", response_model=Memory)
@@ -82,8 +88,17 @@ async def get_memory(memory_id: str, mm: MindMesh = Depends(project_mm)):
 
 
 @router.patch("/memories/{memory_id}", response_model=Memory)
-async def update_memory(memory_id: str, body: MemoryUpdate, mm: MindMesh = Depends(project_mm)):
-    return await mm.memory.update(memory_id, body)
+async def update_memory(memory_id: str, body: MemoryUpdate, request: Request, mm: MindMesh = Depends(project_mm)):
+    before = await mm.memory.get(memory_id)
+    m = await mm.memory.update(memory_id, body)
+    changed = body.model_dump(mode="json", exclude_none=True, exclude={"reason", "edited_by"})
+    old = before.model_dump(mode="json")
+    changes = {k: {"before": old.get(k), "after": v} for k, v in changed.items() if old.get(k) != v}
+    summary = f"'{m.subject_key or m.id}' v{before.version} -> v{m.version}: {', '.join(changes) or 'no changes'}"
+    await audit(request, mm, "memory.updated", "memory", m.id,
+                summary + (f" ({body.reason})" if body.reason else ""), changes=changes, previous_id=memory_id,
+                edited_by=body.edited_by)
+    return m
 
 
 @router.post("/memories/{memory_id}/impact")
@@ -95,8 +110,11 @@ async def memory_impact(memory_id: str, body: ImpactRequest, mm: MindMesh = Depe
 
 
 @router.post("/memories/{memory_id}/retract", response_model=Memory)
-async def retract_memory(memory_id: str, body: RetractBody, mm: MindMesh = Depends(project_mm)):
-    return await mm.memory.retract(memory_id, body.reason, body.by)
+async def retract_memory(memory_id: str, body: RetractBody, request: Request, mm: MindMesh = Depends(project_mm)):
+    m = await mm.memory.retract(memory_id, body.reason, body.by)
+    await audit(request, mm, "memory.retracted", "memory", memory_id,
+                f"retracted '{m.subject_key or m.id}': {body.reason}", by=body.by)
+    return m
 
 
 @router.get("/memories/{memory_id}/versions", response_model=list[Memory])

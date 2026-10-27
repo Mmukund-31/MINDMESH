@@ -1,6 +1,7 @@
 import type {
   AgentSpec,
   ApiKeyInfo,
+  AuditEntry,
   Approval,
   BlockedAction,
   Comparison,
@@ -95,6 +96,17 @@ export async function downloadJson(path: string, filename: string, params?: Reco
 }
 const post = <T>(p: string, body?: unknown) => request<T>("POST", p, body ?? {});
 
+export interface Health {
+  status: "ok" | "unavailable";
+  database?: string;
+}
+
+/** Unauthenticated liveness: API up and database reachable. */
+export async function health(): Promise<Health> {
+  const res = await fetch(new URL(`${BASE}/healthz`, window.location.origin));
+  return (await res.json()) as Health;
+}
+
 export const api = {
   me: () => get<Me>("/me"),
   overview: () => get<Overview>("/stats/overview"),
@@ -144,6 +156,7 @@ export const api = {
   resolveApproval: (id: string, approve: boolean, note?: string) =>
     post<Approval>(`/approvals/${id}/resolve`, { approve, note, resolver: "studio-user" }),
   blocked: () => get<BlockedAction[]>("/blocked-actions"),
+  audit: (target_type?: string) => get<AuditEntry[]>("/audit", { target_type, limit: 300 }),
   tools: () => get<ToolInfo[]>("/tools"),
   agents: () => get<AgentSpec[]>("/agents"),
 

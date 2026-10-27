@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from ...core.types import Run
 from ...demo import experiment
 from ...sdk import MindMesh
-from ..deps import project_mm
+from ..deps import audit, project_mm
 
 router = APIRouter(tags=["experiments"])
 
@@ -34,6 +34,8 @@ async def experiment_state(request: Request, mm: MindMesh = Depends(project_mm))
 @router.post("/experiments/refund/reset")
 async def experiment_reset(request: Request, mm: MindMesh = Depends(project_mm)):
     await experiment.reset(mm)
+    await audit(request, mm, "experiment.reset", "experiment", "refund",
+                "reset the guided experiment (scenario memories and rules restored)")
     return await experiment.state(mm, live_model=_live_model(request))
 
 

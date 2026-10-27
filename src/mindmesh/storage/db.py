@@ -181,8 +181,8 @@ class Database:
             res = await s.execute(delete(ApiKeyRow).where(ApiKeyRow.key_hash == hash_key(key)))
             return res.rowcount > 0
 
-    async def key_identity(self, key: str) -> tuple[str, str] | None:
-        """``(project_id, role)`` for a valid key, else ``None``. Records the key's last use."""
+    async def key_identity(self, key: str) -> tuple[str, str, str] | None:
+        """``(project_id, role, name)`` for a valid key, else ``None``. Records the key's last use."""
         async with self.session() as s:
             row = (
                 await s.execute(select(ApiKeyRow).where(ApiKeyRow.key_hash == hash_key(key)))
@@ -190,7 +190,7 @@ class Database:
             if row is None:
                 return None
             row.last_used_at = now()
-            return row.project_id, row.role
+            return row.project_id, row.role, row.name
 
     async def list_api_keys(self, project_id: str | None = None) -> list[ApiKeyRow]:
         """Key metadata (never the secret), oldest first; all projects when ``project_id`` is None."""

@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from ... import export
+from ...core.errors import NotFound
 from ...core.state import RunStatus
 from ...core.types import Run
 from ...sdk import MindMesh
@@ -55,3 +56,32 @@ async def export_evals(suite: str | None = None, limit: int = Query(100, ge=1, l
 async def import_run(doc: dict[str, Any] = Body(...), mm: MindMesh = Depends(admin_mm)):
     """Import a ``mindmesh.run/v1`` export under new ids; replay it with ``POST /runs/{id}/replay``."""
     return await export.import_run(mm, doc)
+
+
+@router.get("/export/evals/report")
+async def eval_report(suite: str, mm: MindMesh = Depends(project_mm)):
+    """A Markdown report of the latest result per variant of ``suite``: metrics table and per-task outcomes."""
+    from ...eval.report import to_markdown
+    from ...eval.suite import load_suite
+
+    latest: dict[str, Any] = {}
+    for row in await mm.repos.evals.list(suite=suite, limit=500):
+        latest.setdefault(row.variant, row)
+    if not latest:
+        raise NotFound(f"no benchmark results for suite {suite!r}")
+    try:
+        spec = load_suite(suite)
+        order = [v for v in spec.variants if v in latest] + [v for v in latest if v not in spec.variants]
+        described = {k: v.description for k, v in spec.variants.items()}
+        description = spec.description
+    except FileNotFoundError:  # a suite from the user's own project: report without its YAML descriptions
+        order, described, description = list(latest), {}, ""
+    rows = [latest[v] for v in order]
+    report = {
+        "suite": suite, "description": description, "model": ", ".join(sorted({r.model for r in rows})),
+        "seed": rows[0].seed,
+        "variants": {r.variant: {"metrics": r.metrics, "results": r.results, "description": described.get(r.variant, "")}
+                     for r in rows},
+    }
+    return PlainTextResponse(to_markdown(report), media_type="text/markdown; charset=utf-8",
+                             headers={"Content-Disposition": f'attachment; filename="{suite}-report.md"'})

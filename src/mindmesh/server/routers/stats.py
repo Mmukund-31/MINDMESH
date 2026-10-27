@@ -3,6 +3,7 @@ from __future__ import annotations
 import statistics
 from collections import Counter, defaultdict
 from datetime import timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -59,6 +60,26 @@ async def overview(days: int = Query(14, ge=1, le=365), mm: MindMesh = Depends(p
         tools[e.payload.get("tool", "?")]["ok" if e.type == EventType.TOOL_FINISHED else "error"] += 1
     decisions = await mm.repos.events.by_type([EventType.POLICY_DECISION], limit=5000)
     effects = Counter(e.payload.get("effect") for e in decisions)
+    interventions: dict[tuple[str, str], Counter] = defaultdict(Counter)  # (rule, effect) -> tools
+    for e in decisions:
+        if e.payload.get("effect") != "allow":
+            interventions[(e.payload.get("rule_name") or e.payload.get("reason") or "?", e.payload["effect"])][
+                e.payload.get("tool", "?")] += 1
+    model_events = await mm.repos.events.by_type([EventType.MODEL_CALLED, EventType.MODEL_FAILED], limit=5000)
+    models: dict[str, dict[str, Any]] = defaultdict(lambda: {"calls": 0, "errors": 0, "tokens_in": 0,
+                                                             "tokens_out": 0, "latency": [], "reported": set()})
+    for e in model_events:
+        m = models[e.payload.get("model") or "?"]
+        if e.type == EventType.MODEL_FAILED:
+            m["errors"] += 1
+            continue
+        m["calls"] += 1
+        m["tokens_in"] += e.payload.get("tokens_in") or 0
+        m["tokens_out"] += e.payload.get("tokens_out") or 0
+        if e.duration_ms is not None:
+            m["latency"].append(e.duration_ms)
+        if e.payload.get("model_reported"):
+            m["reported"].add(e.payload["model_reported"])
     failures = sorted(
         [r for r in runs if r.status in ("failed", "cancelled")
          or ((r.result or {}).get("answer", "").startswith("ESCALATED"))
@@ -86,7 +107,17 @@ async def overview(days: int = Query(14, ge=1, le=365), mm: MindMesh = Depends(p
         "series": series,
         "tools": [{"tool": k, "ok": v["ok"], "error": v["error"]} for k, v in sorted(tools.items())],
         "policy": {"decisions": dict(effects),
-                   "pending_approvals": len(await mm.repos.approvals.list(status="pending"))},
+                   "pending_approvals": len(await mm.repos.approvals.list(status="pending")),
+                   "interventions": sorted(
+                       ({"rule": rule, "effect": effect, "count": sum(t.values()), "tools": dict(t)}
+                        for (rule, effect), t in interventions.items()),
+                       key=lambda x: -x["count"])},
+        "models": sorted(
+            ({"model": name, "calls": m["calls"], "errors": m["errors"], "tokens_in": m["tokens_in"],
+              "tokens_out": m["tokens_out"], "latency_p50_ms": _pct(m["latency"], 0.5),
+              "latency_p95_ms": _pct(m["latency"], 0.95), "reported": sorted(m["reported"])}
+             for name, m in models.items()),
+            key=lambda x: -(x["calls"] + x["errors"])),
         "recent_failures": [
             {"id": r.id, "agent": r.agent_name, "status": r.status, "task": r.task[:160], "error": r.error,
              "answer": (r.result or {}).get("answer"), "feedback": r.feedback, "kind": r.kind,

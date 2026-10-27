@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.events import EventType
@@ -12,7 +12,7 @@ from ...core.types import Approval, ApprovalResolve, PolicyDecision, PolicyRule,
 from ...policy.impact import policy_change_impact
 from ...policy.rules import dump_rules, load_rules
 from ...sdk import MindMesh
-from ..deps import allow_read_only, project_mm
+from ..deps import allow_read_only, audit, project_mm
 
 router = APIRouter(tags=["control"])
 
@@ -43,8 +43,11 @@ async def list_policies(mm: MindMesh = Depends(project_mm)):
 
 
 @router.post("/policies", response_model=PolicyRule, status_code=201)
-async def create_policy(body: PolicyRuleIn, mm: MindMesh = Depends(project_mm)):
-    return await mm.repos.policies.create(body)
+async def create_policy(body: PolicyRuleIn, request: Request, mm: MindMesh = Depends(project_mm)):
+    rule = await mm.repos.policies.create(body)
+    await audit(request, mm, "policy.created", "policy", rule.id, f"created rule '{rule.name}' ({rule.effect})",
+                rule=body.model_dump(mode="json"))
+    return rule
 
 
 @router.get("/policies/yaml")
@@ -53,8 +56,18 @@ async def get_policies_yaml(mm: MindMesh = Depends(project_mm)):
 
 
 @router.put("/policies/yaml", response_model=list[PolicyRule])
-async def put_policies_yaml(body: PolicyYaml, mm: MindMesh = Depends(project_mm)):
-    return await mm.load_policies(body.yaml, replace=True)
+async def put_policies_yaml(body: PolicyYaml, request: Request, mm: MindMesh = Depends(project_mm)):
+    fields = set(PolicyRuleIn.model_fields)
+    before = {r.name: r.model_dump(mode="json", include=fields) for r in await mm.repos.policies.list()}
+    rules = await mm.load_policies(body.yaml, replace=True)
+    after = {r.name: r.model_dump(mode="json", include=fields) for r in rules}
+    added, removed = sorted(after.keys() - before.keys()), sorted(before.keys() - after.keys())
+    changed = sorted(n for n in after.keys() & before.keys() if after[n] != before[n])
+    parts = [f"{len(x)} {w}" for x, w in ((added, "added"), (changed, "changed"), (removed, "removed")) if x]
+    await audit(request, mm, "policy.replaced", "policy", None,
+                f"saved policy YAML: {', '.join(parts) or 'no rule changes'}",
+                added=added, changed=changed, removed=removed, yaml=body.yaml)
+    return rules
 
 
 @router.post("/policies/impact")
@@ -90,13 +103,27 @@ async def simulate_policy(body: Simulate, mm: MindMesh = Depends(project_mm)):
 
 
 @router.put("/policies/{policy_id}", response_model=PolicyRule)
-async def update_policy(policy_id: str, body: PolicyRuleIn, mm: MindMesh = Depends(project_mm)):
-    return await mm.repos.policies.update(policy_id, body)
+async def update_policy(policy_id: str, body: PolicyRuleIn, request: Request, mm: MindMesh = Depends(project_mm)):
+    before = next((r for r in await mm.repos.policies.list() if r.id == policy_id), None)
+    rule = await mm.repos.policies.update(policy_id, body)
+    old = before.model_dump(mode="json", include=set(PolicyRuleIn.model_fields)) if before else {}
+    new = body.model_dump(mode="json")
+    changes = {k: {"before": old.get(k), "after": v} for k, v in new.items() if old.get(k) != v}
+    if list(changes) == ["enabled"]:
+        what = "enabled" if new["enabled"] else "disabled"
+    else:
+        what = f"updated ({', '.join(changes) or 'no changes'})"
+    await audit(request, mm, "policy.updated", "policy", policy_id, f"rule '{rule.name}' {what}", changes=changes)
+    return rule
 
 
 @router.delete("/policies/{policy_id}", status_code=204)
-async def delete_policy(policy_id: str, mm: MindMesh = Depends(project_mm)):
+async def delete_policy(policy_id: str, request: Request, mm: MindMesh = Depends(project_mm)):
+    before = next((r for r in await mm.repos.policies.list() if r.id == policy_id), None)
     await mm.repos.policies.delete(policy_id)
+    await audit(request, mm, "policy.deleted", "policy", policy_id,
+                f"deleted rule '{before.name if before else policy_id}'",
+                rule=before.model_dump(mode="json") if before else None)
 
 
 @router.get("/approvals", response_model=list[Approval])
@@ -105,9 +132,24 @@ async def list_approvals(status: str | None = None, run_id: str | None = None, m
 
 
 @router.post("/approvals/{approval_id}/resolve", response_model=Approval)
-async def resolve_approval(approval_id: str, body: ApprovalResolve, mm: MindMesh = Depends(project_mm)):
+async def resolve_approval(approval_id: str, body: ApprovalResolve, request: Request,
+                           mm: MindMesh = Depends(project_mm)):
     appr, _ = await mm.resolve_approval(approval_id, body.approve, resolver=body.resolver, note=body.note, wait=False)
+    verdict = "approved" if body.approve else "rejected"
+    await audit(request, mm, f"approval.{verdict}", "approval", approval_id,
+                f"{verdict} {appr.tool} in run {appr.run_id} step {appr.step} (as {body.resolver})",
+                run_id=appr.run_id, step=appr.step, tool=appr.tool, args=appr.args, note=body.note,
+                resolver=body.resolver)
     return appr
+
+
+@router.get("/audit")
+async def audit_trail(target_type: str | None = None, limit: int = Query(200, ge=1, le=1000),
+                      mm: MindMesh = Depends(project_mm)):
+    """Changes made through the API, newest first: policies, approvals, memories, keys, experiment resets."""
+    return [{"id": r.id, "ts": r.created_at, "actor": r.actor, "action": r.action, "target_type": r.target_type,
+             "target_id": r.target_id, "summary": r.summary, "details": r.details}
+            for r in await mm.repos.audit.list(target_type=target_type, limit=limit)]
 
 
 @router.get("/blocked-actions")

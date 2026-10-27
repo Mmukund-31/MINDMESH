@@ -253,6 +253,23 @@ class EvidenceRow(Base):
     created_at: Mapped[datetime] = _ts()
 
 
+class AuditRow(Base):
+    """Who changed what through the API: policies, approvals, memories, keys. Append-only."""
+
+    __tablename__ = "audit_log"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(40), index=True)
+    actor: Mapped[str] = mapped_column(String(120))  # API key name (and role)
+    action: Mapped[str] = mapped_column(String(48), index=True)  # e.g. policy.updated, approval.approved
+    target_type: Mapped[str] = mapped_column(String(24))
+    target_id: Mapped[str | None] = mapped_column(String(64))
+    summary: Mapped[str] = mapped_column(Text)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = _ts()
+
+    __table_args__ = (Index("ix_audit_project_created", "project_id", "created_at"),)
+
+
 class EvalRunRow(Base):
     __tablename__ = "eval_runs"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)

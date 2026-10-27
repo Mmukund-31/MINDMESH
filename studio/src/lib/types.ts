@@ -208,6 +208,17 @@ export interface BlockedAction {
   guard?: string;
 }
 
+export interface AuditEntry {
+  id: string;
+  ts: string;
+  actor: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  summary: string;
+  details: Record<string, unknown>;
+}
+
 export interface ToolInfo {
   name: string;
   description: string;
@@ -259,7 +270,7 @@ export interface WorkflowSummary {
 export interface WorkflowDetail extends Omit<WorkflowSummary, "tasks"> {
   spec: { tasks: { key: string; verifies?: string | null }[] };
   tasks: WorkflowTask[];
-  evidence: { id: string; content: string; task_key: string | null; created_by: string; created_at: string }[];
+  evidence: { id: string; content: string; task_key: string | null; created_by: string; created_at: string; run_id?: string | null }[];
   events: MMEvent[];
   runs: Run[];
 }
@@ -318,7 +329,21 @@ export interface Overview {
   };
   series: { date: string; succeeded: number; failed: number; other: number }[];
   tools: { tool: string; ok: number; error: number }[];
-  policy: { decisions: Record<string, number>; pending_approvals: number };
+  policy: {
+    decisions: Record<string, number>;
+    pending_approvals: number;
+    interventions: { rule: string; effect: string; count: number; tools: Record<string, number> }[];
+  };
+  models: {
+    model: string;
+    calls: number;
+    errors: number;
+    tokens_in: number;
+    tokens_out: number;
+    latency_p50_ms: number | null;
+    latency_p95_ms: number | null;
+    reported: string[];
+  }[];
   recent_failures: {
     id: string;
     agent: string;
