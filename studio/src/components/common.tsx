@@ -269,3 +269,34 @@ export function ScoreBar({ value, className }: { value: number; className?: stri
     </div>
   );
 }
+
+/** Keeps a failing page from blanking the whole app: shows the error in place, with a way back. */
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("Studio page crashed:", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="mx-auto mt-10 max-w-xl space-y-3 rounded-lg border border-destructive/40 bg-card p-4" role="alert" data-testid="page-error">
+        <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
+          <AlertTriangle className="size-4" /> This page failed to render
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Usually the API server is running an older version than this Studio build. The rest of Studio still works.
+        </p>
+        <pre className="overflow-auto rounded-md border bg-background/60 p-2 font-mono text-[11px] whitespace-pre-wrap">{this.state.error.message}</pre>
+        <button className="text-xs text-primary underline-offset-2 hover:underline" onClick={() => this.setState({ error: null })}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+}

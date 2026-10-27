@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -21,7 +21,7 @@ import {
 import { api, health } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { StatusDot } from "@/components/common";
+import { ErrorBoundary, StatusDot } from "@/components/common";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -88,6 +88,7 @@ function NavItem({ to, label, icon: Icon, end, badge, onClick }: {
 
 export function Layout() {
   const { dark, toggle } = useTheme();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
   const up = useQuery({ queryKey: ["health"], queryFn: health, refetchInterval: 15_000, retry: false });
@@ -205,7 +206,9 @@ export function Layout() {
         )}
         <main className="min-h-0 flex-1 overflow-auto px-3 py-4 md:px-5">
           <div className="mx-auto max-w-[1680px]">
-            <Outlet />
+            <ErrorBoundary key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           </div>
         </main>
       </div>

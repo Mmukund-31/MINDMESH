@@ -28,7 +28,9 @@ def source_hash() -> str:
     h = hashlib.sha256()
     for name in INPUTS:
         p = STUDIO / name
-        files = sorted(f for f in p.rglob("*") if f.is_file() and ".test." not in f.name) if p.is_dir() else [p]
+        # Sort by the POSIX path string: Path ordering is case-insensitive on Windows but not on Linux.
+        files = sorted((f for f in p.rglob("*") if f.is_file() and ".test." not in f.name),
+                       key=lambda f: f.relative_to(STUDIO).as_posix()) if p.is_dir() else [p]
         for f in files:
             if "test" in f.relative_to(STUDIO).parts:
                 continue

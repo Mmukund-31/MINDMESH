@@ -90,7 +90,8 @@ test("guided experiment: fail, diagnose, fix, compare, stress-test and measure",
   // 1. Run: the trace streams, and the decision is flagged as wrong.
   await page.getByTestId("run-experiment").click();
   const original = page.getByTestId("live-run-experiment:original");
-  await expect(original.getByTestId("mode-demo")).toBeVisible();
+  // Starting resets and reseeds the scenario first: allow it the same time as the run itself.
+  await expect(original.getByTestId("mode-demo")).toBeVisible({ timeout: 20_000 });
   await expect(original.getByTestId("feed-line").first()).toBeVisible();
   await expect(page.getByTestId("failure-verdict")).toBeVisible({ timeout: 20_000 });
   await expect(original.getByTestId("live-answer")).toContainText("DENIED");

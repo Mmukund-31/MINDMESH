@@ -124,7 +124,11 @@ export async function health(): Promise<Health> {
 
 export const api = {
   me: () => get<Me>("/me"),
-  overview: () => get<Overview>("/stats/overview"),
+  overview: async () => {
+    const d = await get<Overview>("/stats/overview");
+    // Older servers do not report these yet: degrade to empty lists instead of crashing the page.
+    return { ...d, models: d.models ?? [], policy: { ...d.policy, interventions: d.policy?.interventions ?? [] } };
+  },
 
   runs: (params?: Record<string, unknown>) => get<Run[]>("/runs", params),
   run: (id: string) => get<Run>(`/runs/${id}`),

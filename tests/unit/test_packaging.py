@@ -30,6 +30,9 @@ async def test_development_server_serves_the_bundled_studio(db_url):
 
 
 def test_production_does_not_serve_the_bundled_studio():
+    import pytest
+
+    pytest.importorskip("psycopg")  # production requires PostgreSQL; the CI PostgreSQL job runs this
     def serves_spa(app):
         return any(getattr(r, "path", "") == "/{path:path}" for r in app.routes)
 
