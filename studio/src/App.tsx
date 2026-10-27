@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { Layout } from "@/components/Layout";
 import Overview from "@/pages/Overview";
+import Experiment from "@/pages/Experiment";
 import ExecutionStudio from "@/pages/ExecutionStudio";
 import MemoryExplorer from "@/pages/MemoryExplorer";
 import ControlRoom from "@/pages/ControlRoom";
@@ -13,6 +14,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Overview />} />
+        <Route path="experiment" element={<Experiment />} />
         <Route path="runs" element={<ExecutionStudio />} />
         <Route path="runs/:runId" element={<ExecutionStudio />} />
         <Route path="memory" element={<MemoryExplorer />} />

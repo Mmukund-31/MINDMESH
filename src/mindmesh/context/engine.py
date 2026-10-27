@@ -13,6 +13,8 @@ It exists so benchmarks can quantify what the ranked pipeline buys you.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from ..core import clock
 from ..core.ids import new_id
 from ..core.types import (
@@ -28,6 +30,10 @@ from ..memory.store import MemoryStore, keyword_score, scope_visible
 from ..models.base import estimate_tokens
 from ..storage.orm import MemoryRow
 from ..storage.vector import cosine
+
+# Rewrites the candidate rows of a dry run (memory-change impact previews); see ``assemble(simulate=...)``.
+Candidates = list[tuple[MemoryRow, float]]
+Simulation = Callable[[Candidates, list[float]], Awaitable[Candidates]]
 
 ITEM_OVERHEAD_TOKENS = 4
 MAX_LOW_RELEVANCE_REPORTED = 5
@@ -52,7 +58,10 @@ class ContextEngine:
         pinned: list[ContextItem] | None = None,
         evidence: list[ContextItem] | None = None,
         record: bool = True,
+        simulate: Simulation | None = None,
     ) -> ContextReceipt:
+        """``simulate(rows, query_vector)`` may rewrite the retrieved rows (never recorded): it answers
+        "what would this agent see if memory looked like this?" without writing anything."""
         receipt_id = new_id("rcpt")
         pinned = pinned or []
         evidence = evidence or []
@@ -68,6 +77,8 @@ class ContextEngine:
             [qvec] = await self.memory.embedder.embed([query])
             qtok = set(tokenize(query))
             rows = await self.memory.repo.nearest(qvec, k=config.max_candidates)
+            if simulate is not None:
+                rows, record = await simulate(rows, qvec), False
             if config.strategy == "naive":
                 cands, rejected = self._naive(rows, qtok)
             else:

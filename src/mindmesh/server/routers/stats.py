@@ -4,7 +4,7 @@ import statistics
 from collections import Counter, defaultdict
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from ...core import clock
 from ...core.events import EventType
@@ -22,9 +22,12 @@ def _pct(xs: list[float], p: float) -> float | None:
 
 
 @router.get("/me")
-async def me(mm: MindMesh = Depends(project_mm)):
+async def me(request: Request, mm: MindMesh = Depends(project_mm)):
     projects = {p.id: p.name for p in await mm.db.list_projects()}
-    return {"project_id": mm.project_id, "project_name": projects.get(mm.project_id)}
+    live = request.app.state.settings.model
+    # Without MINDMESH_MODEL, agents use their own (scripted, deterministic) models: demo mode.
+    return {"project_id": mm.project_id, "project_name": projects.get(mm.project_id),
+            "model_mode": "live" if live else "demo", "live_model": live}
 
 
 @router.get("/stats/overview")
@@ -85,7 +88,7 @@ async def overview(days: int = Query(14, ge=1, le=365), mm: MindMesh = Depends(p
         "recent_failures": [
             {"id": r.id, "agent": r.agent_name, "status": r.status, "task": r.task[:160], "error": r.error,
              "answer": (r.result or {}).get("answer"), "feedback": r.feedback, "kind": r.kind,
-             "created_at": r.created_at}
+             "model": ((r.config or {}).get("agent_spec") or {}).get("model"), "created_at": r.created_at}
             for r in failures
         ],
         "memory": mem_status,

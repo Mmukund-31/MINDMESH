@@ -20,7 +20,22 @@ waterfall timeline, per-step cards, every context receipt, and raw events.
 | Run kind | `replay` | `rerun` |
 
 Both link to the original via `parent_run_id`. Overrides for reruns: `model`, `memory_scopes`,
-`context` (e.g. `budget_tokens`, `strategy`), `limits`, `enforce_policies`.
+`context` (e.g. `budget_tokens`, `strategy`), `limits`, `enforce_policies`, `faults`.
+
+### Failure injection
+
+`RunOverrides.faults` (e.g. `{"crm.lookup": 2}`) makes the first N executions of a tool in that run fail
+with a transient 503 **before the tool runs**, so no side effect happens. The retry policy then applies
+as for a real outage. `tool.retry` and `tool.failed` events carry `"injected": true`. Served faults are
+counted in the checkpointed execution state, so a resumed run does not re-inject them. The fault plan
+is part of the run's recorded configuration, so reruns inherit it.
+
+### Run modes
+
+Studio labels every run by how its decisions were produced: **Demo** (a `scripted:` model), **Live
+model** (any other provider) or **Replay** (`kind: replay`). Scripted models accept a pacing option,
+`scripted:<brain>?think_ms=650`, which the guided experiment uses so the trace streams at human speed.
+It does not change any decision.
 
 `GET /api/v1/compare?a=&b=` aligns the two runs by step and reports:
 

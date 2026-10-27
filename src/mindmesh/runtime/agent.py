@@ -250,6 +250,7 @@ class AgentRunner:
             project_id=self.mm.project_id,
             memory=self.mm.memory,
             replay_outcomes=self.opts.replay_outcomes,
+            faults=(self.run.config.get("overrides") or {}).get("faults"),
         )
 
     @property

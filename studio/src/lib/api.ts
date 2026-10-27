@@ -6,10 +6,15 @@ import type {
   Conflict,
   ContextReceipt,
   EvalRun,
+  ExperimentScenario,
+  ExperimentState,
+  Me,
   Memory,
+  MemoryImpact,
   MMEvent,
   Overview,
   PolicyDecision,
+  PolicyImpact,
   PolicyRule,
   Retrieval,
   Run,
@@ -78,7 +83,7 @@ const get = <T>(p: string, params?: Record<string, unknown>) => request<T>("GET"
 const post = <T>(p: string, body?: unknown) => request<T>("POST", p, body ?? {});
 
 export const api = {
-  me: () => get<{ project_id: string; project_name: string }>("/me"),
+  me: () => get<Me>("/me"),
   overview: () => get<Overview>("/stats/overview"),
 
   runs: (params?: Record<string, unknown>) => get<Run[]>("/runs", params),
@@ -109,6 +114,8 @@ export const api = {
   versions: (id: string) => get<Memory[]>(`/memories/${id}/versions`),
   retrievals: (id: string) => get<Retrieval[]>(`/memories/${id}/retrievals`),
   conflicts: () => get<Conflict[]>("/memories/conflicts"),
+  memoryImpact: (id: string, change: Record<string, unknown>) =>
+    post<MemoryImpact>(`/memories/${id}/impact`, { change }),
   previewContext: (body: { query: string; agent?: string }) => post<ContextReceipt>("/context/preview", body),
 
   policies: () => get<PolicyRule[]>("/policies"),
@@ -117,6 +124,7 @@ export const api = {
   updatePolicy: (id: string, body: Record<string, unknown>) => request<PolicyRule>("PUT", `/policies/${id}`, body),
   createPolicy: (body: Record<string, unknown>) => post<PolicyRule>("/policies", body),
   deletePolicy: (id: string) => request<void>("DELETE", `/policies/${id}`),
+  policyImpact: (body: { yaml: string } | { disable: string[] }) => post<PolicyImpact>("/policies/impact", body),
   simulate: (body: { tool: string; agent: string; args: Record<string, unknown> }) =>
     post<PolicyDecision>("/policies/simulate", body),
   approvals: (status?: string) => get<Approval[]>("/approvals", { status }),
@@ -125,6 +133,11 @@ export const api = {
   blocked: () => get<BlockedAction[]>("/blocked-actions"),
   tools: () => get<ToolInfo[]>("/tools"),
   agents: () => get<AgentSpec[]>("/agents"),
+
+  experiment: () => get<ExperimentState>("/experiments/refund"),
+  resetExperiment: () => post<ExperimentState>("/experiments/refund/reset"),
+  startExperiment: (scenario: ExperimentScenario, opts?: { protected?: boolean; mode?: "demo" | "live" }) =>
+    post<Run>("/experiments/refund/runs", { scenario, ...opts }),
 
   workflows: () => get<WorkflowSummary[]>("/workflows"),
   workflow: (id: string) => get<WorkflowDetail>(`/workflows/${id}`),
@@ -137,8 +150,8 @@ export const api = {
     ),
   evals: (suite?: string) => get<EvalRun[]>("/evals", { suite }),
   evalRun: (id: string) => get<EvalRun>(`/evals/${id}`),
-  startEval: (suite: string, variants?: string[]) =>
-    post<{ id: string; status: string }>("/evals", { suite, variants }),
+  startEval: (suite: string, variants?: string[], model?: string) =>
+    post<{ id: string; status: string }>("/evals", { suite, variants, model }),
   evalJob: (id: string) => get<{ id: string; status: string; eval_ids: string[]; error: string | null }>(
     `/evals/jobs/${id}`,
   ),

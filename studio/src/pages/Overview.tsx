@@ -10,11 +10,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Activity, AlertTriangle, Brain, Coins, Gauge, LayoutDashboard, ShieldAlert, Timer } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Brain, Coins, Gauge, LayoutDashboard, Play, ShieldAlert, Sparkles, Timer } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorNote, PageHeader, Stat, StatusBadge } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { RunModeBadge } from "@/components/LiveRun";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { fmtMs, fmtNum, fmtPct, shortId, timeAgo } from "@/lib/utils";
@@ -26,6 +28,44 @@ const tooltipStyle = {
   fontSize: 12,
   color: "var(--popover-foreground)",
 };
+
+/** The entry point for newcomers: prominent on an empty project, a slim banner afterwards. */
+function FirstRun({ empty }: { empty: boolean }) {
+  if (!empty)
+    return (
+      <Link
+        to="/experiment"
+        className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm hover:bg-primary/10"
+        data-testid="experiment-banner"
+      >
+        <Sparkles className="size-4 text-primary" />
+        <span>New to MindMesh? The guided experiment shows an agent fail, the cause, the fix and the measured improvement.</span>
+        <ArrowRight className="ml-auto size-4 text-primary" />
+      </Link>
+    );
+  return (
+    <Card className="border-primary/30 bg-gradient-to-br from-primary/10 to-transparent" data-testid="first-run">
+      <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center">
+        <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
+          <Sparkles className="size-6" />
+        </div>
+        <div className="flex-1 space-y-1">
+          <h2 className="text-lg font-semibold">Welcome to MindMesh</h2>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            This project has no runs yet. Start with the guided experiment: a support agent wrongly denies a refund, you trace the
+            cause, fix it with a previewed memory change, stress-test it with a prompt injection and an outage, and measure the result.
+            Runs in a sandbox; about five minutes.
+          </p>
+        </div>
+        <Button size="lg" asChild>
+          <Link to="/experiment" data-testid="start-experiment">
+            <Play /> Run experiment
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Overview() {
   const q = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 5000 });
@@ -39,6 +79,7 @@ export default function Overview() {
         icon={LayoutDashboard}
       />
       <ErrorNote error={q.error} />
+      {d && <FirstRun empty={d.runs.total === 0} />}
       {!d ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -140,6 +181,7 @@ export default function Overview() {
                               {shortId(f.id)}
                             </Link>
                             <div className="text-[11px] text-muted-foreground">{f.agent} · {f.kind}</div>
+                            <RunModeBadge run={{ kind: f.kind, model: f.model }} className="mt-1" />
                           </TD>
                           <TD>
                             <div className="flex flex-col items-start gap-1">

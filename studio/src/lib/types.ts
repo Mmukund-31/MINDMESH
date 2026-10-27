@@ -328,6 +328,7 @@ export interface Overview {
     answer: string | null;
     feedback: Run["feedback"];
     kind: string;
+    model: string | null;
     created_at: string;
   }[];
   memory: Record<string, number>;
@@ -370,4 +371,109 @@ export interface RunSummary {
   answer: string | null;
   error: string | null;
   model: string | null;
+}
+
+export interface Me {
+  project_id: string;
+  project_name: string;
+  model_mode: "demo" | "live";
+  live_model: string | null;
+}
+
+export interface ExperimentRunInfo {
+  id: string;
+  status: RunStatus;
+  kind: string;
+  label: string | null;
+  answer: string | null;
+  error: string | null;
+  model: string | null;
+  created_at: string;
+  parent_run_id: string | null;
+  // stress-test runs only: what the run actually did
+  facts?: {
+    refunds: { amount: number | null; status: string; rule: string | null }[];
+    injected_faults: number;
+    retries: number;
+  };
+}
+
+export interface ExperimentMemory {
+  id: string;
+  scope: string;
+  version: number;
+  status: string;
+  content: string;
+  created_by: string;
+  source_ref: string | null;
+}
+
+export type ExperimentScenario = "original" | "injection" | "faults";
+
+export interface ExperimentState {
+  seeded: boolean;
+  seeded_at: string | null;
+  fixed: boolean;
+  memories: { current_policy: ExperimentMemory | null; stale_policy: ExperimentMemory | null };
+  rules: { name: string; description: string; effect: string; enabled: boolean }[];
+  scenarios: Record<
+    ExperimentScenario,
+    { customer_id: string; order_id: string; title: string; expected: string; attack?: string; faults?: Record<string, number> }
+  >;
+  model: { demo: string; live: string | null };
+  // keys: original, rerun, replay, injection, "injection:unprotected", faults, "faults:unprotected"
+  runs: Record<string, ExperimentRunInfo | null>;
+}
+
+export interface ImpactItem {
+  item_id: string;
+  subject_key: string | null;
+  scope: string | null;
+  content: string;
+  reason: string | null;
+  detail: string | null;
+}
+
+export interface MemoryImpact {
+  memory: { id: string; subject_key: string | null; version: number };
+  changes: Record<string, { before: unknown; after: unknown }>;
+  new_version: number;
+  supersedes: { id: string; subject_key: string | null; scope: string; content: string; version: number }[];
+  visibility: { agent: string; scopes: string[]; before: boolean; after: boolean }[];
+  runs: {
+    run_id: string;
+    agent: string;
+    kind: string;
+    task: string;
+    answer: string | null;
+    query: string;
+    newly_included: ImpactItem[];
+    newly_excluded: ImpactItem[];
+    used_tokens: { before: number; after: number };
+  }[];
+}
+
+export interface PolicyImpact {
+  rules: {
+    rule: string;
+    change: "added" | "removed" | "modified";
+    fields?: string[];
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+  }[];
+  evaluated: number;
+  unchanged: number;
+  changed: number;
+  transitions: Record<string, number>;
+  changes: {
+    run_id: string;
+    agent: string;
+    kind: string;
+    step: number;
+    tool: string;
+    args: Record<string, unknown>;
+    before: { effect: string; rule_name: string | null; reason: string };
+    after: { effect: string; rule_name: string | null; reason: string };
+  }[];
+  note: string;
 }

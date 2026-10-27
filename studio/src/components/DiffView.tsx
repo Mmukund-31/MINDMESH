@@ -4,6 +4,7 @@ import type { CompareStepSide, Comparison, RunSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Mono, StatusBadge } from "@/components/common";
+import { RunModeBadge } from "@/components/LiveRun";
 import { cn, fmtMs, fmtNum, shortId } from "@/lib/utils";
 
 function describe(side: CompareStepSide | undefined): string {
@@ -20,7 +21,7 @@ function Summary({ s, label }: { s: RunSummary; label: string }) {
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Badge variant="outline">{label}</Badge>
         <Link to={`/runs/${s.id}`} className="font-mono text-primary hover:underline">{shortId(s.id)}</Link>
-        <span>{s.kind}</span>
+        <RunModeBadge run={{ kind: s.kind, model: s.model }} />
         <StatusBadge status={s.status} className="ml-auto" />
       </div>
       <p className={cn("mt-2 text-sm font-medium", !s.error && good ? "" : "text-destructive")} data-testid={`answer-${label}`}>

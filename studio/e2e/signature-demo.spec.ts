@@ -67,3 +67,67 @@ test("orchestration lab renders the research workflow DAG", async ({ page }) => 
   await expect(page.getByTestId("wf-task-verify")).toContainText("succeeded");
   await expect(page.getByText(/rejected write/)).toBeVisible();
 });
+
+/**
+ * The first-run experience, using only what a newcomer sees: run -> understand the failure -> preview and
+ * apply the fix -> before/after -> stress tests -> scorecard. Runs last in this file because "Run experiment"
+ * re-seeds the scenario's memories, which the tests above navigate to.
+ */
+test("guided experiment: fail, diagnose, fix, compare, stress-test and measure", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("server-mode")).toContainText("Demo mode");
+  await page.getByTestId("experiment-banner").click();
+
+  // 1. Run: the trace streams, and the decision is flagged as wrong.
+  await page.getByTestId("run-experiment").click();
+  const original = page.getByTestId("live-run-experiment:original");
+  await expect(original.getByTestId("mode-demo")).toBeVisible();
+  await expect(original.getByTestId("feed-line").first()).toBeVisible();
+  await expect(page.getByTestId("failure-verdict")).toBeVisible({ timeout: 20_000 });
+  await expect(original.getByTestId("live-answer")).toContainText("DENIED");
+
+  // 2. Diagnose: the receipt shows the current policy was out of the agent's scope.
+  await expect(page.getByTestId("diagnosis-missed")).toContainText("premium customers within 30 days");
+  await expect(page.getByTestId("root-cause")).toContainText("agent:billing");
+
+  // 3. Fix: preview first (nothing written), then apply.
+  await expect(page.getByTestId("apply-fix")).toBeDisabled();
+  await page.getByTestId("preview-fix").click();
+  const impact = page.getByTestId("memory-impact");
+  await expect(impact).toContainText("gains access");
+  await expect(impact.getByTestId("impact-included").first()).toContainText("premium customers within 30 days");
+  await page.getByTestId("apply-fix").click();
+  await expect(page.getByTestId("fix-applied")).toBeVisible();
+
+  // 4. Rerun and compare before / after; a safe replay reproduces the original.
+  await page.getByTestId("rerun-original").click();
+  const ba = page.getByTestId("before-after");
+  await expect(ba).toBeVisible({ timeout: 20_000 });
+  await expect(ba.getByTestId("outcome-a")).toContainText("DENIED");
+  await expect(ba.getByTestId("outcome-b")).toContainText("APPROVED");
+  await expect(ba.getByTestId("context-added").first()).toContainText("premium customers within 30 days");
+  await page.getByTestId("safe-replay").click();
+  await expect(page.getByTestId("live-run-replay").getByTestId("mode-replay")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("replay-verdict")).toContainText("reproduced the original decision exactly", { timeout: 20_000 });
+
+  // 5. Stress tests: the injection is blocked by policy (not by the model), and retries ride out the outage.
+  await page.getByTestId("run-injection").click();
+  await expect(page.getByTestId("injection-verdict")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("live-run-experiment:injection").getByTestId("event-feed")).toContainText(
+    "Policy blocked refund.issue",
+  );
+  await page.getByTestId("preview-policy").click();
+  await expect(page.getByTestId("policy-flip").first()).toContainText("amount=4999");
+  await page.getByTestId("run-faults").click();
+  await expect(page.getByTestId("faults-verdict")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("live-run-experiment:faults").getByTestId("event-feed")).toContainText("injected fault");
+  await expect(page.getByTestId("live-run-experiment:faults:unprotected").getByTestId("live-answer")).toContainText("ESCALATED");
+
+  // 6. Measure: the scorecard and the plain-language improvement.
+  await page.getByTestId("run-scorecard").click();
+  const score = page.getByTestId("scorecard");
+  await expect(score).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("score-success_rate")).toContainText("100% (7/7)");
+  await expect(page.getByTestId("improvement")).toContainText("took correct decisions from 4/7 (57%) to 7/7 (100%)");
+  await expect(page.getByTestId("experiment-summary")).toBeVisible();
+});

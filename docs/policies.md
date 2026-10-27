@@ -52,6 +52,16 @@ rules:
 `PUT /api/v1/policies/yaml` validates and replaces all rules atomically.
 `POST /api/v1/policies/simulate` evaluates a hypothetical call exactly as the runtime would.
 
+### Explaining a change before applying it
+
+`POST /api/v1/policies/impact` takes a proposed rule set (`{"yaml": …}`, as the editor saves it, or
+`{"disable": ["rule-name"]}`) and writes nothing. It returns the rule diff (added, removed, modified
+fields) and re-evaluates the tool calls agents actually proposed (recorded `policy.decision` events)
+under both rule sets, listing every decision that would flip and the rule responsible. Per-run call
+counts are rebuilt from the log, so `max_calls_per_run` rules see the same history as at run time.
+Runs with enforcement switched off and runtime guards/budgets are skipped. Studio's *Preview impact*
+button in the Control Room YAML editor uses it.
+
 ## Other protections
 
 - **Tenant isolation**: project-scoped repositories. Cross-project access returns 404.

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.types import ContextConfig, Memory, MemoryCreate, MemoryUpdate
+from ...memory.impact import memory_change_impact
 from ...sdk import MindMesh
 from ..deps import project_mm
 
@@ -22,6 +23,12 @@ class ContextPreview(BaseModel):
     agent: str | None = None
     scopes: list[str] | None = None
     context: ContextConfig | None = None
+
+
+class ImpactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    change: MemoryUpdate
+    run_ids: list[str] | None = Field(default=None, max_length=20)
 
 
 @router.get("/memories", response_model=list[Memory])
@@ -77,6 +84,13 @@ async def get_memory(memory_id: str, mm: MindMesh = Depends(project_mm)):
 @router.patch("/memories/{memory_id}", response_model=Memory)
 async def update_memory(memory_id: str, body: MemoryUpdate, mm: MindMesh = Depends(project_mm)):
     return await mm.memory.update(memory_id, body)
+
+
+@router.post("/memories/{memory_id}/impact")
+async def memory_impact(memory_id: str, body: ImpactRequest, mm: MindMesh = Depends(project_mm)):
+    """Explain an edit before applying it: visibility per agent, memories it would supersede, and how the
+    context of the runs that retrieved this memory would change. Nothing is written."""
+    return await memory_change_impact(mm, memory_id, body.change, run_ids=body.run_ids)
 
 
 @router.post("/memories/{memory_id}/retract", response_model=Memory)

@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core.errors import ToolArgumentError, ToolTimeout, TransientToolError
+from ..core.errors import ToolArgumentError, TransientToolError
 from ..core.events import EventLog, EventType
 from ..core.ids import new_id
 from ..core.types import AgentSpec, PolicyDecision, PolicyEffect, ToolCallAction
@@ -55,6 +55,7 @@ class ExecState:
     tool_calls: int = 0
     calls_by_tool: dict[str, int] = field(default_factory=dict)
     failures: dict[str, int] = field(default_factory=dict)
+    injected: dict[str, int] = field(default_factory=dict)  # injected faults already served, per tool
 
 
 def call_signature(tool: str, args: dict[str, Any]) -> str:
@@ -84,6 +85,7 @@ class ToolExecutor:
         project_id: str,
         memory: Any = None,
         replay_outcomes: dict[int, dict[str, Any]] | None = None,
+        faults: dict[str, int] | None = None,
     ):
         self.registry = registry
         self.policy = policy
@@ -94,6 +96,7 @@ class ToolExecutor:
         self.project_id = project_id
         self.memory = memory
         self.replay_outcomes = replay_outcomes
+        self.faults = faults or {}
 
     async def execute(
         self, call: ToolCallAction, *, step: int, span: str, state: ExecState, approved: bool = False
@@ -188,7 +191,7 @@ class ToolExecutor:
         state.calls_by_tool[call.tool] = state.calls_by_tool.get(call.tool, 0) + 1
         if self.replay_outcomes is not None:
             return await self._replayed(call, args, step, span, decision)
-        outcome = await self._run_with_retries(tool, args, step=step, span=span)
+        outcome = await self._run_with_retries(tool, args, step=step, span=span, state=state)
         outcome.decision = decision
         if outcome.status != "ok":
             state.failures[sig] = state.failures.get(sig, 0) + 1
@@ -239,7 +242,16 @@ class ToolExecutor:
             decision=decision, attempts=1,
         )
 
-    async def _run_with_retries(self, tool, args: dict[str, Any], *, step: int, span: str) -> ToolOutcome:
+    def _inject_fault(self, tool_name: str, state: ExecState) -> None:
+        served = state.injected.get(tool_name, 0)
+        if served < self.faults.get(tool_name, 0):
+            state.injected[tool_name] = served + 1
+            raise TransientToolError(f"{tool_name} upstream unavailable (503, injected fault {served + 1}/"
+                                     f"{self.faults[tool_name]})")
+
+    async def _run_with_retries(
+        self, tool, args: dict[str, Any], *, step: int, span: str, state: ExecState
+    ) -> ToolOutcome:
         limits = self.spec.limits
         timeout = tool.timeout_s or limits.tool_timeout_s
         tool_span = new_id("span")
@@ -254,7 +266,13 @@ class ToolExecutor:
         t0 = time.perf_counter()
         while True:
             attempt += 1
+            injected = False
             try:
+                try:
+                    self._inject_fault(tool.name, state)
+                except TransientToolError:
+                    injected = True
+                    raise
                 kwargs = dict(args)
                 if tool.wants_ctx:
                     kwargs["ctx"] = ToolContext(
@@ -281,20 +299,20 @@ class ToolExecutor:
                     delay = limits.backoff_base_s * (2 ** (attempt - 1))
                     await self.events.emit(
                         EventType.TOOL_RETRY,
-                        {"tool": tool.name, "attempt": attempt, "error": err, "backoff_s": delay},
+                        {"tool": tool.name, "attempt": attempt, "error": err, "backoff_s": delay, "injected": injected},
                         step=step, parent_span_id=tool_span,
                     )
                     await asyncio.sleep(delay)
                     continue
-                return await self._fail(tool.name, err, attempt, step, span, tool_span, t0, ToolTimeout)
+                return await self._fail(tool.name, err, attempt, step, span, tool_span, t0, injected)
             except Exception as e:  # tool bug or permanent failure: never retried
-                return await self._fail(tool.name, f"{type(e).__name__}: {e}", attempt, step, span, tool_span, t0, None)
+                return await self._fail(tool.name, f"{type(e).__name__}: {e}", attempt, step, span, tool_span, t0, False)
 
-    async def _fail(self, name, err, attempt, step, span, tool_span, t0, _kind) -> ToolOutcome:
+    async def _fail(self, name, err, attempt, step, span, tool_span, t0, injected: bool) -> ToolOutcome:
         dur = (time.perf_counter() - t0) * 1000
         await self.events.emit(
             EventType.TOOL_FAILED,
-            {"tool": name, "error": err, "attempts": attempt},
+            {"tool": name, "error": err, "attempts": attempt, "injected": injected},
             step=step, span_id=tool_span, parent_span_id=span, duration_ms=dur,
         )
         return ToolOutcome(status="error", error=err, attempts=attempt, duration_ms=dur)

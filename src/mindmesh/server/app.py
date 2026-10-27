@@ -17,7 +17,7 @@ from ..config import DEFAULT_DEV_KEY, Settings
 from ..core.errors import InvalidTransition, NotFound, ToolArgumentError
 from ..sdk import MindMesh
 from .deps import KeyCache
-from .routers import control, evals, memories, runs, stats, workflows
+from .routers import control, evals, experiments, memories, runs, stats, workflows
 from .security import SecurityMiddleware
 
 log = logging.getLogger("mindmesh.server")
@@ -124,7 +124,8 @@ def create_app(
             return JSONResponse({"status": "unavailable", "database": "unreachable"}, status_code=503)
         return {"status": "ok", "database": "postgresql" if mm.db.is_postgres else "sqlite"}
 
-    for r in (runs.router, memories.router, control.router, workflows.router, evals.router, stats.router):
+    for r in (runs.router, memories.router, control.router, workflows.router, evals.router, stats.router,
+              experiments.router):
         app.include_router(r, prefix="/api/v1")
 
     studio = settings.studio_dir

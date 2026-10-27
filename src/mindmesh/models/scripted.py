@@ -9,6 +9,7 @@ see it and fails exactly like a real model would.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -44,13 +45,35 @@ def _echo(req: GenerationRequest) -> dict[str, Any]:
     return {"type": "final_answer", "answer": f"echo: {req.task}"}
 
 
+MAX_THINK_MS = 5000
+
+
+def parse_spec(rest: str) -> tuple[str, float]:
+    """``refund-support?think_ms=700`` -> (brain, seconds of simulated thinking time per call)."""
+    name, _, query = rest.partition("?")
+    think_ms = 0.0
+    for part in filter(None, query.split("&")):
+        key, _, value = part.partition("=")
+        if key != "think_ms":
+            raise ValueError(f"unknown scripted model option {key!r} (supported: think_ms)")
+        think_ms = float(value)
+        if not 0 <= think_ms <= MAX_THINK_MS:
+            raise ValueError(f"think_ms must be between 0 and {MAX_THINK_MS}")
+    return name or "echo", think_ms / 1000
+
+
 class ScriptedProvider:
-    def __init__(self, brain_name: str = "echo", fn: Brain | None = None):
+    """``think_s`` paces demos: the run streams at human speed instead of finishing in milliseconds."""
+
+    def __init__(self, brain_name: str = "echo", fn: Brain | None = None, think_s: float = 0.0):
         self.name = f"scripted:{brain_name}"
         self._fn = fn or get_brain(brain_name)
+        self.think_s = think_s
 
     async def generate(self, request: GenerationRequest) -> ModelResponse:
         t0 = time.perf_counter()
+        if self.think_s:
+            await asyncio.sleep(self.think_s)
         out = self._fn(request)
         text = out if isinstance(out, str) else json.dumps(out)
         prompt = "".join(m.content for m in request.messages)

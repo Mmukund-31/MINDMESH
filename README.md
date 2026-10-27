@@ -30,11 +30,25 @@ Requires Python ≥ 3.12 and Node ≥ 20.19.
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[server,dev]"
 
-mindmesh demo refund      # the signature demo in your terminal (fail → diagnose → fix → rerun → benchmark)
-mindmesh demo seed        # seed demo data for Studio
 mindmesh serve            # API on http://127.0.0.1:8000  (OpenAPI docs at /docs)
-
 cd studio && npm install && npm run dev                 # Studio on http://localhost:5173
+```
+
+Open Studio and click **Run experiment** (on the Overview, or **Guided experiment** in the sidebar).
+No seeding is needed. In about five minutes you watch the support agent wrongly deny a refund while its
+trace streams in, read the context receipt that explains why, preview the memory fix and see exactly
+what it will change, apply it, compare the runs before and after, run a controlled prompt-injection
+attack and an injected CRM outage (each with a protected and an unprotected control run), and get a
+reliability scorecard with the measured improvement spelled out. Everything runs in a sandbox: the tools
+are simulated and no money moves.
+
+Every run is labelled with how it was produced: **Demo** (deterministic scripted model), **Live model**
+(e.g. `qwen3:4b`) or **Replay** (recorded outputs; no model or tool executed). To use a real model, start
+the server with `MINDMESH_MODEL=ollama:qwen3:4b` and choose *Live model* in the experiment.
+
+```bash
+mindmesh demo refund      # the same story in your terminal (fail → diagnose → fix → rerun → benchmark)
+mindmesh demo seed        # optional: extra runs, approvals and a workflow to explore in Studio
 ```
 
 Studio uses the development API key `mm_dev_local_key_change_me` by default. Set `MINDMESH_API_KEY`

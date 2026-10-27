@@ -6,10 +6,16 @@ from collections.abc import Callable
 
 from .base import ModelProvider
 from .ollama import OllamaProvider
-from .scripted import ScriptedProvider
+from .scripted import ScriptedProvider, parse_spec
+
+
+def _scripted(rest: str) -> ScriptedProvider:
+    name, think_s = parse_spec(rest)
+    return ScriptedProvider(name, think_s=think_s)
+
 
 _FACTORIES: dict[str, Callable[[str], ModelProvider]] = {
-    "scripted": lambda rest: ScriptedProvider(rest or "echo"),
+    "scripted": _scripted,
     "ollama": lambda rest: OllamaProvider(rest or "qwen3:8b"),
 }
 

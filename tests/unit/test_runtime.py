@@ -5,8 +5,8 @@ import pytest
 
 from mindmesh import AgentSpec, Limits, TransientToolError
 from mindmesh.core.errors import ModelOutputError
-from mindmesh.core.types import PolicyEffect, PolicyRuleIn
-from mindmesh.models.scripted import ScriptedProvider
+from mindmesh.core.types import PolicyEffect, PolicyRuleIn, RunOverrides
+from mindmesh.models.scripted import ScriptedProvider, parse_spec
 from mindmesh.runtime.prompting import parse_action
 
 
@@ -250,3 +250,35 @@ async def test_remember_outcomes_writes_episode(mm):
     run = await mm.run("mem", "summarise the weekly report")
     eps = await mm.memory.list(kind="episode")
     assert eps and eps[0].run_id == run.id and eps[0].scope == "agent:mem"
+
+
+async def test_injected_faults_fail_before_the_tool_runs(mm):
+    calls = []
+
+    @mm.tool(side_effect=True)
+    async def charge(amount: int) -> str:
+        calls.append(amount)
+        return "charged"
+
+    make_agent(mm, "pay", ["charge"], tool_then_answer("charge", {"amount": 5}),
+               limits=Limits(max_retries=2, backoff_base_s=0.0))
+    run = await mm.run("pay", "charge", overrides=RunOverrides(faults={"charge": 2}))
+    assert run.result["answer"] == "done:ok:charged" and calls == [5]  # the tool body ran once, after two faults
+    retries = await mm.repos.events.list(run.id, types=["tool.retry"])
+    assert [e.payload["injected"] for e in retries] == [True, True]
+
+    fragile = await mm.run("pay", "charge", overrides=RunOverrides(faults={"charge": 1}, limits={"max_retries": 0}))
+    assert fragile.result["answer"].startswith("done:error:transient error: charge upstream unavailable (503, injected")
+    assert calls == [5]
+    with pytest.raises(ValueError, match="between 0 and 20"):
+        RunOverrides(faults={"charge": 99})
+
+
+def test_scripted_model_pacing_option():
+    name, think_s = parse_spec("refund-support?think_ms=650")
+    assert (name, think_s) == ("refund-support", 0.65)
+    assert parse_spec("echo") == ("echo", 0.0)
+    with pytest.raises(ValueError, match="unknown scripted model option"):
+        parse_spec("echo?speed=2")
+    with pytest.raises(ValueError, match="think_ms"):
+        parse_spec("echo?think_ms=99999")

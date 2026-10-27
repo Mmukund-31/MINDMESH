@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .state import ApprovalStatus, RunStatus, TaskStatus
 
@@ -253,6 +253,16 @@ class RunOverrides(BaseModel):
     context: dict[str, Any] | None = None
     limits: dict[str, Any] | None = None
     enforce_policies: bool | None = None
+    # Failure injection: the first N executions of each named tool fail with an injected transient error
+    # (before the tool runs, so no side effects). Recorded in the run config, so reruns inherit it.
+    faults: dict[str, int] | None = None
+
+    @field_validator("faults")
+    @classmethod
+    def _faults(cls, v: dict[str, int] | None) -> dict[str, int] | None:
+        if v is not None and any(not 0 <= n <= 20 for n in v.values()):
+            raise ValueError("faults: injected failures per tool must be between 0 and 20")
+        return v
 
 
 class RunCreate(BaseModel):

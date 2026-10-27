@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FileCode2, Gavel, PauseCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wrench, X, Zap } from "lucide-react";
+import { Check, Eye, FileCode2, Gavel, PauseCircle, Plus, ShieldBan, ShieldCheck, Trash2, Wrench, X, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import type { PolicyRule } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState, ErrorNote, Json, Mono, PageHeader, StatusBadge } from "@/components/common";
+import { PolicyImpactView } from "@/components/Impact";
 import { shortId, timeAgo } from "@/lib/utils";
 
 function Approvals() {
@@ -174,7 +175,14 @@ function YamlEditor() {
   const y = useQuery({ queryKey: ["policies", "yaml"], queryFn: api.policiesYaml });
   const [text, setText] = useState("");
   useEffect(() => { if (y.data) setText(y.data.yaml); }, [y.data]);
-  const save = useMutation({ mutationFn: () => api.putPoliciesYaml(text), onSuccess: () => qc.invalidateQueries({ queryKey: ["policies"] }) });
+  const preview = useMutation({ mutationFn: () => api.policyImpact({ yaml: text }) });
+  const save = useMutation({
+    mutationFn: () => api.putPoliciesYaml(text),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["policies"] });
+      preview.reset();
+    },
+  });
   return (
     <Card>
       <CardHeader>
@@ -182,9 +190,20 @@ function YamlEditor() {
         <CardDescription>Replace all rules of this project atomically (validated server-side).</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={18} className="font-mono text-xs" spellCheck={false} />
-        <ErrorNote error={save.error} />
-        <div className="flex justify-end"><Button onClick={() => save.mutate()} disabled={save.isPending}>Apply YAML</Button></div>
+        <Textarea value={text} onChange={(e) => { setText(e.target.value); preview.reset(); }} rows={18} className="font-mono text-xs" spellCheck={false} />
+        <ErrorNote error={save.error ?? preview.error} />
+        {preview.data && (
+          <div className="rounded-lg border p-3">
+            <PolicyImpactView impact={preview.data} />
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => preview.mutate()} disabled={preview.isPending} data-testid="preview-yaml"
+            title="Diff the rules and re-evaluate recorded tool calls against them. Nothing is saved.">
+            <Eye /> Preview impact
+          </Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>Apply YAML</Button>
+        </div>
       </CardContent>
     </Card>
   );

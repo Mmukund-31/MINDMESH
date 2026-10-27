@@ -23,6 +23,15 @@
 4. Active memories that disagree about the same subject across scopes are reported by `conflicts()`,
    with a suggested winner (higher trust, then newer `valid_from`).
 
+### Explaining an edit before applying it
+
+`POST /api/v1/memories/{id}/impact` with `{"change": {…MemoryUpdate…}}` is a dry run of `update()`. It
+reports the field changes, which agents gain or lose visibility, which memories the new version would
+supersede, and, for each run that retrieved the memory (up to six), how that run's context would change:
+memories that would enter it and memories that would leave it, with the reason. The context engine runs
+on rewritten candidate rows (`assemble(simulate=…)`), using each run's recorded query and pinned items,
+so nothing is written or recorded as a retrieval.
+
 ## Context assembly
 
 ```

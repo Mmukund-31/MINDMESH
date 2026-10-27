@@ -27,6 +27,7 @@ import { EmptyState, ErrorNote, Json, KV, Mono, PageHeader, StatusBadge } from "
 import { ReceiptPanel } from "@/components/ReceiptPanel";
 import { TraceGraph, describeNode, stepTitle, type Selection } from "@/components/TraceGraph";
 import { useRunStream } from "@/hooks/useRunStream";
+import { EventFeed, RunModeBadge } from "@/components/LiveRun";
 import { cn, durationMs, fmtMs, fmtNum, parseTs, shortId, timeAgo } from "@/lib/utils";
 
 const PRESETS = [
@@ -157,7 +158,8 @@ function RunList({ selected }: { selected?: string }) {
                   <StatusBadge status={r.status} />
                 </div>
                 <div className="mt-1 line-clamp-1 text-xs">{r.result?.answer ?? r.error ?? r.task}</div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                  <RunModeBadge run={{ kind: r.kind, model: r.config.agent_spec?.model }} />
                   <span>{r.agent_name}</span>·<span>{r.kind}</span>·<span>{timeAgo(r.created_at)}</span>
                   {r.feedback?.verdict === "incorrect" && <Badge variant="destructive">flagged</Badge>}
                 </div>
@@ -270,7 +272,7 @@ function RunDetail({ runId }: { runId: string }) {
     refetchInterval: (q) => (q.state.data && ["pending", "running"].includes(q.state.data.run.status) ? 1500 : false),
   });
   const events = useQuery({ queryKey: ["events", runId, trace.data?.run.status, trace.data?.steps.length], queryFn: () => api.events(runId) });
-  const { live } = useRunStream(trace.data?.run);
+  const { live, events: streamed } = useRunStream(trace.data?.run);
   const [sel, setSel] = useState<Selection | null>(null);
   const receipts = useMemo(() => {
     const m = new Map<number, ContextReceipt>();
@@ -310,7 +312,9 @@ function RunDetail({ runId }: { runId: string }) {
               <div className="flex flex-wrap items-center gap-2">
                 <Mono className="text-sm" data-testid="run-id">{run.id}</Mono>
                 <StatusBadge status={run.status} />
+                <RunModeBadge run={{ kind: run.kind, model: spec?.model }} />
                 <Badge variant="outline">{run.kind}</Badge>
+                {run.label?.startsWith("experiment:") && <Badge variant="outline">{run.label}</Badge>}
                 {live && (
                   <Badge variant="info">
                     <Radio className="animate-pulse" /> live
@@ -429,10 +433,25 @@ function RunDetail({ runId }: { runId: string }) {
           <TabsTrigger value="events">Raw events</TabsTrigger>
         </TabsList>
         <TabsContent value="graph">
-          <TraceGraph run={run} steps={steps} onSelect={setSel} selectedId={selectedId} />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Click a step or detail node to inspect inputs, outputs, policy decisions and the context receipt.
-          </p>
+          <div className="grid gap-3 2xl:grid-cols-[1fr_340px]">
+            <div className="min-w-0">
+              <TraceGraph run={run} steps={steps} onSelect={setSel} selectedId={selectedId} />
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Click a step or detail node to inspect inputs, outputs, policy decisions and the context receipt.
+              </p>
+            </div>
+            <Card className="p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
+                What happened
+                {live && (
+                  <Badge variant="info">
+                    <Radio className="animate-pulse" /> streaming
+                  </Badge>
+                )}
+              </div>
+              <EventFeed events={live ? streamed : (events.data ?? streamed)} live={live} className="max-h-[420px]" />
+            </Card>
+          </div>
         </TabsContent>
         <TabsContent value="steps" className="space-y-2">
           {steps.map((s: TraceStep) => (

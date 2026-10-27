@@ -167,8 +167,14 @@ DISTRACTORS = [
 ]
 
 
+SCENARIO_TAG = "scenario:refund"
+
+
 async def seed(mm, *, memory_state: str = "broken", policies: bool = True) -> dict[str, str]:
-    """Seed memories (and policies) for the scenario. Returns ids of the key memories."""
+    """Seed memories (and policies) for the scenario. Returns ids of the key memories.
+
+    Memories are tagged ``scenario:refund`` so the scenario can be reset without touching other data."""
+    tags = [SCENARIO_TAG]
     now = clock.now()
     ids: dict[str, str] = {}
     try:
@@ -176,14 +182,14 @@ async def seed(mm, *, memory_state: str = "broken", policies: bool = True) -> di
             clock.freeze(now - timedelta(days=200 - i))
             await mm.memory.add(
                 MemoryCreate(content=text, subject_key=key, provenance=Provenance(source_type="import",
-                             source_ref="kb/support-handbook.md"), trust=0.7, importance=0.3)
+                             source_ref="kb/support-handbook.md"), trust=0.7, importance=0.3, tags=tags)
             )
         clock.freeze(now - timedelta(days=120))
         old = await mm.memory.add(
             MemoryCreate(
                 content=OLD_POLICY, subject_key="refund_policy", kind=MemoryKind.FACT, scope="project",
                 provenance=Provenance(source_type="import", source_ref="docs/policy-handbook-v1.pdf"),
-                trust=0.6, importance=0.9,
+                trust=0.6, importance=0.9, tags=tags,
             )
         )
         ids["old_policy"] = old.id
@@ -193,7 +199,7 @@ async def seed(mm, *, memory_state: str = "broken", policies: bool = True) -> di
                 content="Strategy: always check the customer's tier with crm.lookup before deciding refund eligibility.",
                 subject_key="refund_strategy", kind=MemoryKind.STRATEGY, scope="project",
                 provenance=Provenance(source_type="agent", source_ref="postmortem-2026-08", created_by="support"),
-                trust=0.8, importance=0.6,
+                trust=0.8, importance=0.6, tags=tags,
             )
         )
         ids["strategy"] = strat.id
@@ -204,7 +210,7 @@ async def seed(mm, *, memory_state: str = "broken", policies: bool = True) -> di
                 scope="agent:billing" if memory_state == "broken" else "project",
                 provenance=Provenance(source_type="import", source_ref="docs/policy-handbook-v2.pdf",
                                       created_by="billing"),
-                trust=0.9, importance=0.9,
+                trust=0.9, importance=0.9, tags=tags,
             )
         )
         ids["new_policy"] = new.id

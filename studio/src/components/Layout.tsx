@@ -3,7 +3,9 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Bot,
   Brain,
+  Cpu,
   FlaskConical,
   KeyRound,
   LayoutDashboard,
@@ -11,6 +13,7 @@ import {
   Moon,
   Network,
   ShieldCheck,
+  Sparkles,
   Sun,
   Workflow,
   X,
@@ -20,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const NAV = [
+  { to: "/experiment", label: "Guided experiment", icon: Sparkles },
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/runs", label: "Execution Studio", icon: Activity },
   { to: "/memory", label: "Memory Explorer", icon: Brain },
@@ -91,6 +95,9 @@ export function Layout() {
         >
           <Icon className="size-4" />
           <span>{label}</span>
+          {to === "/experiment" && (
+            <span className="ml-auto whitespace-nowrap rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold text-primary">start here</span>
+          )}
           {to === "/control" && nPending > 0 && (
             <span className="ml-auto rounded-full bg-warning px-1.5 text-[10px] font-semibold text-black">{nPending}</span>
           )}
@@ -138,6 +145,20 @@ export function Layout() {
           <div className="ml-auto flex items-center gap-1">
             {me.isError && (
               <span className="mr-2 text-xs text-destructive">API unreachable or invalid key — see Settings</span>
+            )}
+            {me.data && (
+              <span
+                className="mr-1 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
+                title={
+                  me.data.model_mode === "live"
+                    ? "New runs use this live model (MINDMESH_MODEL). The guided experiment can still use the demo model."
+                    : "No live model configured: agents use their deterministic scripted models. Set MINDMESH_MODEL=ollama:qwen3:4b for a real model."
+                }
+                data-testid="server-mode"
+              >
+                {me.data.model_mode === "live" ? <Cpu className="size-3.5 text-primary" /> : <Bot className="size-3.5 text-info" />}
+                {me.data.model_mode === "live" ? `Live model · ${me.data.live_model}` : "Demo mode · scripted models"}
+              </span>
             )}
             <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
               {dark ? <Sun /> : <Moon />}

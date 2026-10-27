@@ -13,6 +13,7 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState, ErrorNote, KV, Mono, PageHeader, ScoreBar, StatusBadge } from "@/components/common";
 import { ReceiptPanel, REASON_TEXT } from "@/components/ReceiptPanel";
+import { MemoryImpactView } from "@/components/Impact";
 import { cn, shortId, timeAgo } from "@/lib/utils";
 
 function MemoryDrawer({ id, onClose, onNavigate }: { id: string; onClose: () => void; onNavigate: (id: string) => void }) {
@@ -41,17 +42,16 @@ function MemoryDrawer({ id, onClose, onNavigate }: { id: string; onClose: () => 
     setReason("");
     if (next && next.id !== id) onNavigate(next.id);
   };
+  const change = () => ({
+    ...(content !== m.data?.content ? { content } : {}),
+    ...(scope !== m.data?.scope ? { scope } : {}),
+    ...(trust !== m.data?.trust ? { trust } : {}),
+  });
   const save = useMutation({
-    mutationFn: () =>
-      api.updateMemory(id, {
-        ...(content !== m.data?.content ? { content } : {}),
-        ...(scope !== m.data?.scope ? { scope } : {}),
-        ...(trust !== m.data?.trust ? { trust } : {}),
-        reason: reason || undefined,
-        edited_by: "studio-user",
-      }),
+    mutationFn: () => api.updateMemory(id, { ...change(), reason: reason || undefined, edited_by: "studio-user" }),
     onSuccess: refresh,
   });
+  const impact = useMutation({ mutationFn: () => api.memoryImpact(id, { ...change(), edited_by: "studio-user" }) });
   const retract = useMutation({ mutationFn: () => api.retractMemory(id, reason), onSuccess: () => refresh() });
   const mem = m.data;
 
@@ -97,9 +97,14 @@ function MemoryDrawer({ id, onClose, onNavigate }: { id: string; onClose: () => 
                 </div>
                 <Label>Reason for change (kept in provenance)</Label>
                 <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. policy applies to all agents" />
-                <ErrorNote error={save.error} />
+                <ErrorNote error={save.error ?? impact.error} />
+                {impact.data && <MemoryImpactView impact={impact.data} />}
                 <div className="flex justify-end gap-2">
                   <Button size="sm" variant="ghost" onClick={() => setMode("view")}>Cancel</Button>
+                  <Button size="sm" variant="outline" onClick={() => impact.mutate()} disabled={impact.isPending} data-testid="preview-memory"
+                    title="Dry run: who gains or loses access, what gets superseded, how recent runs' context would change">
+                    <Eye /> Preview impact
+                  </Button>
                   <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending} data-testid="save-memory">
                     Save as v{mem.version + 1}
                   </Button>
