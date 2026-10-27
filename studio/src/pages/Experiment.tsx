@@ -579,6 +579,7 @@ export default function Experiment() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
   const [mode, setMode] = useState<Mode>("demo");
   const live = me.data?.live_model ?? null;
+  const readOnly = me.data?.role === "read";
   const refresh = () => qc.invalidateQueries({ queryKey: ["experiment"] });
   const reset = useMutation({ mutationFn: api.resetExperiment, onSuccess: refresh });
   const start = useMutation({
@@ -619,7 +620,7 @@ export default function Experiment() {
         <div className="flex flex-wrap items-start gap-2">
           <ModePicker mode={mode} setMode={setMode} live={live} />
           {d.seeded && (
-            <Button variant="ghost" size="sm" onClick={() => reset.mutate()} disabled={reset.isPending}
+            <Button variant="ghost" size="sm" onClick={() => reset.mutate()} disabled={reset.isPending || readOnly}
               title="Restore the scenario's failing state. Only the scenario's own memories and rules are touched." data-testid="reset-experiment">
               <RotateCcw /> Start over
             </Button>
@@ -641,9 +642,17 @@ export default function Experiment() {
           <Badge variant="warning">Replay</Badge> so you always know what produced a result.
         </p>
         {!original ? (
-          <Button size="lg" onClick={() => start.mutate()} disabled={start.isPending} data-testid="run-experiment">
-            {start.isPending ? <Loader2 className="animate-spin" /> : <Play />} Run experiment
-          </Button>
+          <div className="space-y-1.5">
+            <Button size="lg" onClick={() => start.mutate()} disabled={start.isPending || readOnly} data-testid="run-experiment">
+              {start.isPending ? <Loader2 className="animate-spin" /> : <Play />} Run experiment
+            </Button>
+            {readOnly && (
+              <p className="text-xs text-muted-foreground" data-testid="read-only-experiment">
+                Running experiments needs a developer key. In this public demo, explore the recorded runs in Execution Studio and
+                Replay Lab.
+              </p>
+            )}
+          </div>
         ) : (
           <LiveRun key={original.id} runId={original.id} title="Dana's refund request" expect={approved} />
         )}

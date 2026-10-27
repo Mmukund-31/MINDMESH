@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ...core.types import ContextConfig, Memory, MemoryCreate, MemoryUpdate
 from ...memory.impact import memory_change_impact
 from ...sdk import MindMesh
-from ..deps import project_mm
+from ..deps import allow_read_only, project_mm
 
 router = APIRouter(tags=["memory"])
 
@@ -87,6 +87,7 @@ async def update_memory(memory_id: str, body: MemoryUpdate, mm: MindMesh = Depen
 
 
 @router.post("/memories/{memory_id}/impact")
+@allow_read_only
 async def memory_impact(memory_id: str, body: ImpactRequest, mm: MindMesh = Depends(project_mm)):
     """Explain an edit before applying it: visibility per agent, memories it would supersede, and how the
     context of the runs that retrieved this memory would change. Nothing is written."""
@@ -109,6 +110,7 @@ async def memory_retrievals(memory_id: str, mm: MindMesh = Depends(project_mm)):
 
 
 @router.post("/context/preview")
+@allow_read_only
 async def context_preview(body: ContextPreview, mm: MindMesh = Depends(project_mm)):
     """Dry-run context assembly: what would this agent see for this query? (not recorded)"""
     spec = mm.agents.get(body.agent) if body.agent else None

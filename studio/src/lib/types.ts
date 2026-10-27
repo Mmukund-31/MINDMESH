@@ -378,6 +378,7 @@ export interface Me {
   project_name: string;
   model_mode: "demo" | "live";
   live_model: string | null;
+  role: "admin" | "read";
 }
 
 export interface ExperimentRunInfo {

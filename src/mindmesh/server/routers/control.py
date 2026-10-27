@@ -12,7 +12,7 @@ from ...core.types import Approval, ApprovalResolve, PolicyDecision, PolicyRule,
 from ...policy.impact import policy_change_impact
 from ...policy.rules import dump_rules, load_rules
 from ...sdk import MindMesh
-from ..deps import project_mm
+from ..deps import allow_read_only, project_mm
 
 router = APIRouter(tags=["control"])
 
@@ -58,6 +58,7 @@ async def put_policies_yaml(body: PolicyYaml, mm: MindMesh = Depends(project_mm)
 
 
 @router.post("/policies/impact")
+@allow_read_only
 async def policy_impact(body: PolicyImpact, mm: MindMesh = Depends(project_mm)):
     """Explain a policy change before applying it: rule diff, and which recorded tool calls would be decided
     differently (and by which rule). Nothing is written."""
@@ -76,6 +77,7 @@ async def policy_impact(body: PolicyImpact, mm: MindMesh = Depends(project_mm)):
 
 
 @router.post("/policies/simulate", response_model=PolicyDecision)
+@allow_read_only
 async def simulate_policy(body: Simulate, mm: MindMesh = Depends(project_mm)):
     """Evaluate a hypothetical tool call against current rules (arguments validated first)."""
     spec = mm.agents.get(body.agent)

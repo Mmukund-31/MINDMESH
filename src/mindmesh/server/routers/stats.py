@@ -27,7 +27,8 @@ async def me(request: Request, mm: MindMesh = Depends(project_mm)):
     live = request.app.state.settings.model
     # Without MINDMESH_MODEL, agents use their own (scripted, deterministic) models: demo mode.
     return {"project_id": mm.project_id, "project_name": projects.get(mm.project_id),
-            "model_mode": "live" if live else "demo", "live_model": live}
+            "model_mode": "live" if live else "demo", "live_model": live,
+            "role": getattr(request.state, "key_role", "admin")}
 
 
 @router.get("/stats/overview")

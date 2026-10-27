@@ -17,6 +17,7 @@ from ..config import DEFAULT_DEV_KEY, Settings
 from ..core.errors import InvalidTransition, NotFound, ToolArgumentError
 from ..sdk import MindMesh
 from .deps import KeyCache
+from .ratelimit import RateLimitMiddleware
 from .routers import control, evals, experiments, memories, runs, stats, workflows
 from .security import SecurityMiddleware
 
@@ -64,6 +65,8 @@ def create_app(
         app.state.apps = install_apps(mm, apps if apps is not None else settings.apps)
         if settings.model:
             mm.set_model_override(settings.model)
+        if settings.public_key:
+            await _setup_public_demo(mm, settings, app.state.apps)
         yield
         for t in list(app.state.background):
             t.cancel()
@@ -85,6 +88,9 @@ def create_app(
     app.state.eval_jobs = {}
     app.state.background = set()
 
+    # Inside CORS, so 429 responses still carry CORS headers and browsers can read them.
+    app.add_middleware(RateLimitMiddleware, per_minute=settings.rate_limit,
+                       writes_per_minute=settings.rate_limit_writes, client_ip_header=settings.client_ip_header)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -140,6 +146,19 @@ def create_app(
             return FileResponse(Path(studio, "index.html"))
 
     return app
+
+
+async def _setup_public_demo(mm: MindMesh, settings: Settings, apps: list[str]) -> None:
+    """Bind the read-only public key to its own project, seeding the showcase there on first boot."""
+    from ..demo import showcase
+
+    project_id = await mm.db.ensure_project(settings.public_project)
+    await mm.db.set_bootstrap_key(project_id, settings.public_key, name="public", role="read")
+    demo = mm.scoped(project_id)
+    showcase_apps = {"mindmesh.demo.refund", "mindmesh.demo.research"}
+    if settings.seed_public and showcase_apps <= set(apps) and await showcase.is_empty(demo):
+        log.info("seeding the public demo project %r", settings.public_project)
+        await showcase.seed(demo)
 
 
 def main_app() -> FastAPI:

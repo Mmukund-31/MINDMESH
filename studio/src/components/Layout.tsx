@@ -165,6 +165,16 @@ export function Layout() {
             </Button>
           </div>
         </header>
+        {me.data?.role === "read" && (
+          <div className="border-b bg-info/10 px-4 py-2 text-xs text-foreground" data-testid="read-only-banner">
+            <span className="font-medium">Public read-only demo.</span> Explore runs, traces, memories and policies;
+            changes are disabled. Developers can connect with their own key in{" "}
+            <NavLink to="/settings" className="underline underline-offset-2">
+              Settings
+            </NavLink>
+            .
+          </div>
+        )}
         <main className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
           <Outlet />
         </main>

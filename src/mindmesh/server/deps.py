@@ -12,16 +12,23 @@ from .tokens import verify_stream_token
 
 KEY_CACHE_TTL_S = 30.0
 KEY_CACHE_MAX = 10_000
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def allow_read_only(endpoint):
+    """Mark a non-GET endpoint that only computes (preview, simulation, stream token) as usable by read keys."""
+    endpoint.allow_read_only = True
+    return endpoint
 
 
 class KeyCache:
-    """Short-lived ``key hash -> project id`` cache, so revoked keys stop working within the TTL."""
+    """Short-lived ``key hash -> (project id, role)`` cache, so revoked keys stop working within the TTL."""
 
     def __init__(self, ttl_s: float = KEY_CACHE_TTL_S, max_size: int = KEY_CACHE_MAX):
         self.ttl_s, self.max_size = ttl_s, max_size
-        self._entries: dict[str, tuple[str, float]] = {}
+        self._entries: dict[str, tuple[tuple[str, str], float]] = {}
 
-    def get(self, key_hash: str) -> str | None:
+    def get(self, key_hash: str) -> tuple[str, str] | None:
         hit = self._entries.get(key_hash)
         if hit is None:
             return None
@@ -30,10 +37,10 @@ class KeyCache:
             return None
         return hit[0]
 
-    def put(self, key_hash: str, project_id: str) -> None:
+    def put(self, key_hash: str, identity: tuple[str, str]) -> None:
         if len(self._entries) >= self.max_size:
             self._entries.clear()
-        self._entries[key_hash] = (project_id, time.monotonic() + self.ttl_s)
+        self._entries[key_hash] = (identity, time.monotonic() + self.ttl_s)
 
     def clear(self) -> None:
         self._entries.clear()
@@ -44,14 +51,21 @@ def root_mm(request: Request) -> MindMesh:
 
 
 async def _project_for_key(request: Request, mm: MindMesh, key: str) -> str:
+    """Resolve the key's project and enforce its role; the role is kept on ``request.state.key_role``."""
     cache: KeyCache = request.app.state.key_cache
     h = hash_key(key)
-    project_id = cache.get(h)
-    if project_id is None:
-        project_id = await mm.db.project_for_key(key)
-        if project_id is None:
+    identity = cache.get(h)
+    if identity is None:
+        identity = await mm.db.key_identity(key)
+        if identity is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid API key")
-        cache.put(h, project_id)
+        cache.put(h, identity)
+    project_id, role = identity
+    request.state.key_role = role
+    if role != "admin" and request.method not in SAFE_METHODS:
+        if not getattr(request.scope.get("endpoint"), "allow_read_only", False):
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "read-only API key: this is a public demo, changes are disabled")
     return project_id
 
 

@@ -30,17 +30,18 @@ export default function Settings() {
           <div className="space-y-1">
             <Label>API key</Label>
             <Input value={key} onChange={(e) => setKey(e.target.value)} type="password" className="font-mono" />
-            <p className="text-[11px] text-muted-foreground">Stored in this browser only. Local development default: {DEFAULT_KEY}</p>
+            <p className="text-[11px] text-muted-foreground">Stored in this browser only. Default for this deployment: {DEFAULT_KEY}</p>
           </div>
           <div className="flex gap-2">
             <Button onClick={save}>Save & reconnect</Button>
-            <Button variant="ghost" onClick={() => setKey(DEFAULT_KEY)}>Use dev default</Button>
+            <Button variant="ghost" onClick={() => setKey(DEFAULT_KEY)}>Use default key</Button>
           </div>
           <ErrorNote error={me.error} />
           {me.data && (
             <div className="rounded-lg border p-3">
               <KV k="project">{me.data.project_name}</KV>
               <KV k="project id">{me.data.project_id}</KV>
+              <KV k="access">{me.data.role === "read" ? "read-only" : "full (admin)"}</KV>
             </div>
           )}
         </CardContent>

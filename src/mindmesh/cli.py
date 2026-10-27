@@ -142,13 +142,9 @@ async def _demo_refund(database_url, project, model, fresh):
 
 
 async def _reset_project(mm) -> None:
-    from sqlalchemy import delete
+    from .demo.showcase import reset_project
 
-    from .storage.orm import MemoryRetrievalRow, MemoryRow, PolicyRow
-
-    async with mm.db.session() as s:
-        for tbl in (MemoryRow, MemoryRetrievalRow, PolicyRow):
-            await s.execute(delete(tbl).where(tbl.project_id == mm.project_id))
+    await reset_project(mm)
 
 
 @demo_app.command("seed")
@@ -162,8 +158,7 @@ def demo_seed(
 
 
 async def _seed(database_url, project, model):
-    from .core.types import RunFeedback
-    from .demo import refund, research
+    from .demo import refund, research, showcase
 
     mm = await _mm(database_url, project).init()
     try:
@@ -171,20 +166,7 @@ async def _seed(database_url, project, model):
             mm.set_model_override(model)
         refund.install(mm)
         research.install(mm)
-        await _reset_project(mm)
-        await refund.seed(mm, memory_state="broken")
-        cases = [("C-1042", "A-7731"), ("C-2077", "A-8812"), ("C-2077", "A-6666"), ("C-3310", "A-9555"),
-                 ("C-2077", "A-9020")]
-        for cid, oid in cases:
-            task, inp = refund.task_for(cid, oid)
-            r = await mm.run("support", task, inp)
-            if oid == "A-7731":
-                await mm.repos.runs.update(r.id, feedback=RunFeedback(
-                    verdict="incorrect", note="Premium customer within 30 days — should be approved.",
-                    by="support-lead").model_dump())
-            console.print(f"{oid}: {r.status} {(r.result or {}).get('answer', '')[:80]}")
-        research.reset_faults()
-        await mm.run_workflow(research.TEMPLATE)
+        await showcase.seed(mm, echo=console.print)
         console.print("[green]seeded.[/] Start the API with `mindmesh serve` and open Studio.")
     finally:
         await mm.close()
@@ -225,14 +207,15 @@ def create_key(
     project: str = typer.Option("default", envvar="MINDMESH_PROJECT"),
     database_url: str = typer.Option(None, envvar="MINDMESH_DATABASE_URL"),
     name: str = typer.Option("cli"),
+    role: str = typer.Option("admin", help="admin (full access) or read (read-only, e.g. a public demo)"),
 ):
     """Create an API key for a project (creates the project if needed). The key is shown once."""
 
     async def go():
         mm = await _mm(database_url, project).init()
         try:
-            key = await mm.db.create_api_key(mm.project_id, name)
-            console.print(f"project [bold]{project}[/] ({mm.project_id})\nAPI key: [bold]{key}[/]")
+            key = await mm.db.create_api_key(mm.project_id, name, role=role)
+            console.print(f"project [bold]{project}[/] ({mm.project_id}) role [bold]{role}[/]\nAPI key: [bold]{key}[/]")
         finally:
             await mm.close()
 

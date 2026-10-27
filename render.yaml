@@ -1,0 +1,45 @@
+# Render Blueprint: the MindMesh API (Docker) + managed PostgreSQL (pgvector). Studio deploys to Vercel (studio/).
+#
+# Secrets marked `sync: false` are entered in the Render dashboard on first deploy; generated ones never leave
+# Render. See docs/deployment.md.
+
+databases:
+  - name: mindmesh-db
+    plan: free
+    databaseName: mindmesh
+    user: mindmesh
+    postgresMajorVersion: "16"
+    ipAllowList: []          # private network only: the API reaches it over Render's internal network
+
+services:
+  - type: web
+    name: mindmesh-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.server
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: MINDMESH_ENV
+        value: production
+      - key: MINDMESH_DATABASE_URL
+        fromDatabase: { name: mindmesh-db, property: connectionString }
+      - key: MINDMESH_API_KEY          # developer (admin) key for the private "default" project
+        generateValue: true
+      - key: MINDMESH_SECRET_KEY       # signs stream tokens
+        generateValue: true
+      - key: MINDMESH_PUBLIC_KEY       # read-only key for the "demo" project; baked into the public Studio build
+        sync: false
+      - key: MINDMESH_SEED_PUBLIC
+        value: "true"
+      - key: MINDMESH_CORS_ORIGINS     # the Studio origin(s), e.g. https://mindmesh-studio.vercel.app
+        sync: false
+      - key: MINDMESH_CLIENT_IP_HEADER
+        value: true-client-ip
+      - key: MINDMESH_RATE_LIMIT
+        value: "300"
+      - key: MINDMESH_RATE_LIMIT_WRITES
+        value: "60"

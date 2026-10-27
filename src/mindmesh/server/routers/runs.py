@@ -11,7 +11,7 @@ from ...core.events import EventType
 from ...core.state import TERMINAL_RUN, RunStatus
 from ...core.types import Event, Run, RunCreate, RunFeedback, RunOverrides
 from ...sdk import MindMesh
-from ..deps import project_mm, stream_mm
+from ..deps import allow_read_only, project_mm, stream_mm
 from ..tokens import issue_stream_token
 from ..trace import build_trace
 
@@ -89,6 +89,7 @@ async def run_checkpoints(run_id: str, mm: MindMesh = Depends(project_mm)):
 
 
 @router.post("/runs/{run_id}/stream-token")
+@allow_read_only
 async def stream_token(run_id: str, request: Request, mm: MindMesh = Depends(project_mm)):
     """A short-lived token for ``GET /runs/{run_id}/stream?token=…``, so EventSource clients (which cannot
     send headers) never put the API key in a URL. Only valid for this run, in this project."""

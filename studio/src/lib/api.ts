@@ -24,7 +24,8 @@ import type {
   WorkflowSummary,
 } from "./types";
 
-export const DEFAULT_KEY = "mm_dev_local_key_change_me";
+// A deployment's public Studio build bakes in its read-only demo key; local development uses the dev key.
+export const DEFAULT_KEY = (import.meta.env.VITE_DEFAULT_API_KEY as string | undefined) || "mm_dev_local_key_change_me";
 const KEY_STORAGE = "mindmesh.apiKey";
 const BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
 

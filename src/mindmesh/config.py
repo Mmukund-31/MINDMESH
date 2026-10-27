@@ -43,6 +43,14 @@ class Settings:
     max_body_bytes: int = 1_048_576
     stream_token_ttl_s: int = 60
     docs: bool = True
+    # Public read-only demo: a ``read`` key for a separate project, safe to embed in a public Studio build.
+    public_key: str | None = None
+    public_project: str = "demo"
+    seed_public: bool = False
+    # Requests per minute per client IP (0 disables); writes also count against the stricter write limit.
+    rate_limit: int = 300
+    rate_limit_writes: int = 60
+    client_ip_header: str | None = None  # set by the edge proxy, e.g. true-client-ip
 
     @property
     def is_production(self) -> bool:
@@ -68,6 +76,12 @@ class Settings:
             max_body_bytes=int(e.get("MINDMESH_MAX_BODY_BYTES", "1048576")),
             stream_token_ttl_s=int(e.get("MINDMESH_STREAM_TOKEN_TTL", "60")),
             docs=_bool(e.get("MINDMESH_DOCS"), not prod),
+            public_key=e.get("MINDMESH_PUBLIC_KEY") or None,
+            public_project=e.get("MINDMESH_PUBLIC_PROJECT", "demo"),
+            seed_public=_bool(e.get("MINDMESH_SEED_PUBLIC"), False),
+            rate_limit=int(e.get("MINDMESH_RATE_LIMIT", "300")),
+            rate_limit_writes=int(e.get("MINDMESH_RATE_LIMIT_WRITES", "60")),
+            client_ip_header=e.get("MINDMESH_CLIENT_IP_HEADER") or None,
         )
 
     def validate(self) -> list[str]:
@@ -78,6 +92,15 @@ class Settings:
             raise ConfigError("MINDMESH_MAX_BODY_BYTES must be at least 1024")
         if not 5 <= self.stream_token_ttl_s <= 3600:
             raise ConfigError("MINDMESH_STREAM_TOKEN_TTL must be between 5 and 3600 seconds")
+        if self.rate_limit < 0 or self.rate_limit_writes < 0:
+            raise ConfigError("MINDMESH_RATE_LIMIT and MINDMESH_RATE_LIMIT_WRITES must be >= 0 (0 disables)")
+        if self.public_key is not None:
+            if self.public_key == self.api_key:
+                raise ConfigError("MINDMESH_PUBLIC_KEY must differ from MINDMESH_API_KEY")
+            if self.public_project == self.project:
+                raise ConfigError("MINDMESH_PUBLIC_PROJECT must differ from MINDMESH_PROJECT (the demo is separate)")
+            if len(self.public_key) < 16:
+                raise ConfigError("MINDMESH_PUBLIC_KEY must be at least 16 characters")
         for origin in self.cors_origins:
             if origin != "*" and (urlsplit(origin).scheme not in ("http", "https") or not urlsplit(origin).netloc):
                 raise ConfigError(f"invalid CORS origin {origin!r} (expected scheme://host[:port])")

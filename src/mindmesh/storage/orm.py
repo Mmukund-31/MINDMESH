@@ -71,6 +71,7 @@ class ApiKeyRow(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    role: Mapped[str] = mapped_column(String(16), default="admin", server_default="admin")  # admin | read
     created_at: Mapped[datetime] = _ts()
 
 

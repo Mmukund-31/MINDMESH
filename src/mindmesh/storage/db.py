@@ -27,6 +27,7 @@ def normalize_url(url: str) -> str:
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 INITIAL_REVISION = "0001"
+KEY_ROLES = ("admin", "read")
 _MIGRATION_LOCK = 0x6D696E646D657368  # pg advisory lock id ("mindmesh"): one migrator at a time
 
 
@@ -141,24 +142,32 @@ class Database:
         async with self.session() as s:
             return list((await s.execute(select(ProjectRow).order_by(ProjectRow.created_at))).scalars())
 
-    async def create_api_key(self, project_id: str, name: str = "default", key: str | None = None) -> str:
-        """Create (or idempotently register) an API key. Only the SHA-256 hash is stored."""
+    async def create_api_key(self, project_id: str, name: str = "default", key: str | None = None,
+                             role: str = "admin") -> str:
+        """Create (or idempotently register) an API key. Only the SHA-256 hash is stored.
+
+        ``role`` is ``admin`` (full access) or ``read`` (read-only: safe for a public demo)."""
+        if role not in KEY_ROLES:
+            raise ValueError(f"role must be one of {KEY_ROLES}")
         key = key or "mm_" + secrets.token_urlsafe(24)
         h = hash_key(key)
         async with self.session() as s:
             existing = (await s.execute(select(ApiKeyRow).where(ApiKeyRow.key_hash == h))).scalar_one_or_none()
             if existing is None:
-                s.add(ApiKeyRow(id=new_id("key"), project_id=project_id, name=name, key_hash=h))
+                s.add(ApiKeyRow(id=new_id("key"), project_id=project_id, name=name, key_hash=h, role=role))
             elif existing.project_id != project_id:
                 raise ValueError("API key already bound to another project")
+            else:
+                existing.role = role
         return key
 
-    async def set_bootstrap_key(self, project_id: str, key: str) -> None:
-        """Register the server's configured key and revoke any previous one, so rotating
-        ``MINDMESH_API_KEY`` invalidates the old value."""
-        await self.create_api_key(project_id, "bootstrap", key)
+    async def set_bootstrap_key(self, project_id: str, key: str, *, name: str = "bootstrap",
+                                role: str = "admin") -> None:
+        """Register a key configured by the server (``MINDMESH_API_KEY``, ``MINDMESH_PUBLIC_KEY``) and revoke any
+        previous one of the same ``name``, so rotating the variable invalidates the old value."""
+        await self.create_api_key(project_id, name, key, role)
         async with self.session() as s:
-            await s.execute(delete(ApiKeyRow).where(ApiKeyRow.project_id == project_id, ApiKeyRow.name == "bootstrap",
+            await s.execute(delete(ApiKeyRow).where(ApiKeyRow.project_id == project_id, ApiKeyRow.name == name,
                                                     ApiKeyRow.key_hash != hash_key(key)))
 
     async def revoke_api_key(self, key: str) -> bool:
@@ -166,12 +175,17 @@ class Database:
             res = await s.execute(delete(ApiKeyRow).where(ApiKeyRow.key_hash == hash_key(key)))
             return res.rowcount > 0
 
-    async def project_for_key(self, key: str) -> str | None:
+    async def key_identity(self, key: str) -> tuple[str, str] | None:
+        """``(project_id, role)`` for a valid key, else ``None``."""
         async with self.session() as s:
             row = (
                 await s.execute(select(ApiKeyRow).where(ApiKeyRow.key_hash == hash_key(key)))
             ).scalar_one_or_none()
-            return row.project_id if row else None
+            return (row.project_id, row.role) if row else None
+
+    async def project_for_key(self, key: str) -> str | None:
+        identity = await self.key_identity(key)
+        return identity[0] if identity else None
 
 
 def _upgrade(conn: Connection, revision: str) -> None:

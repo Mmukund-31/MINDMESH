@@ -79,12 +79,18 @@ The server image defaults to `MINDMESH_ENV=production`. In this mode the server 
 
 Other settings: `MINDMESH_AUTO_MIGRATE` (default `true`), `MINDMESH_MAX_BODY_BYTES` (default 1 MiB),
 `MINDMESH_STREAM_TOKEN_TTL` (default 60 s) and `MINDMESH_DOCS` (OpenAPI docs; off in production by default).
+Rate limiting: `MINDMESH_RATE_LIMIT` (requests per minute per client IP, default 300) and
+`MINDMESH_RATE_LIMIT_WRITES` (non-GET requests, default 60); `0` disables. Behind an edge proxy, set
+`MINDMESH_CLIENT_IP_HEADER` (e.g. `true-client-ip`) so clients are identified by an address they cannot forge.
+A public read-only demo: `MINDMESH_PUBLIC_KEY` (a `read` key bound to `MINDMESH_PUBLIC_PROJECT`, default `demo`)
+and `MINDMESH_SEED_PUBLIC=true` to seed that project on first boot. Hosted on Render + Vercel:
+[docs/deployment.md](docs/deployment.md).
 Generate secrets with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
 API keys are accepted only in the `X-API-Key` or `Authorization: Bearer` headers, never in URLs. Browsers
 that use `EventSource` mint a token bound to one run with `POST /api/v1/runs/{id}/stream-token`, then open
-`GET /api/v1/runs/{id}/stream?token=…`. Additional keys: `mindmesh create-key --project <name>`; revoke them
-with `mindmesh revoke-key <key>`.
+`GET /api/v1/runs/{id}/stream?token=…`. Additional keys: `mindmesh create-key --project <name>` (add
+`--role read` for a read-only key); revoke them with `mindmesh revoke-key <key>`.
 
 ### Schema migrations
 
@@ -211,6 +217,7 @@ production-mode server smoke test), and builds both Docker images.
 - [Memory & context engineering](docs/memory-and-context.md)
 - [Policies & safety](docs/policies.md)
 - [Tracing, replay & evaluation](docs/replay-and-evaluation.md)
+- [Deployment (Render + Vercel)](docs/deployment.md)
 
 ## Roadmap
 
