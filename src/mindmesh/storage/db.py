@@ -12,6 +12,7 @@ from sqlalchemy import delete, event, inspect, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from ..core.clock import now
 from ..core.ids import new_id
 from .orm import ApiKeyRow, Base, ProjectRow
 
@@ -45,6 +46,10 @@ def head_revision() -> str:
     from alembic.script import ScriptDirectory
 
     return ScriptDirectory.from_config(alembic_config()).get_current_head()
+
+
+def key_prefix(key: str) -> str:
+    return key[:10]
 
 
 def hash_key(key: str) -> str:
@@ -154,7 +159,8 @@ class Database:
         async with self.session() as s:
             existing = (await s.execute(select(ApiKeyRow).where(ApiKeyRow.key_hash == h))).scalar_one_or_none()
             if existing is None:
-                s.add(ApiKeyRow(id=new_id("key"), project_id=project_id, name=name, key_hash=h, role=role))
+                s.add(ApiKeyRow(id=new_id("key"), project_id=project_id, name=name, key_hash=h, role=role,
+                                prefix=key_prefix(key)))
             elif existing.project_id != project_id:
                 raise ValueError("API key already bound to another project")
             else:
@@ -176,12 +182,31 @@ class Database:
             return res.rowcount > 0
 
     async def key_identity(self, key: str) -> tuple[str, str] | None:
-        """``(project_id, role)`` for a valid key, else ``None``."""
+        """``(project_id, role)`` for a valid key, else ``None``. Records the key's last use."""
         async with self.session() as s:
             row = (
                 await s.execute(select(ApiKeyRow).where(ApiKeyRow.key_hash == hash_key(key)))
             ).scalar_one_or_none()
-            return (row.project_id, row.role) if row else None
+            if row is None:
+                return None
+            row.last_used_at = now()
+            return row.project_id, row.role
+
+    async def list_api_keys(self, project_id: str | None = None) -> list[ApiKeyRow]:
+        """Key metadata (never the secret), oldest first; all projects when ``project_id`` is None."""
+        q = select(ApiKeyRow).order_by(ApiKeyRow.created_at)
+        if project_id is not None:
+            q = q.where(ApiKeyRow.project_id == project_id)
+        async with self.session() as s:
+            return list((await s.execute(q)).scalars())
+
+    async def revoke_api_key_id(self, key_id: str, project_id: str | None = None) -> bool:
+        """Revoke by id (as shown in listings); restricted to ``project_id`` when given."""
+        q = delete(ApiKeyRow).where(ApiKeyRow.id == key_id)
+        if project_id is not None:
+            q = q.where(ApiKeyRow.project_id == project_id)
+        async with self.session() as s:
+            return (await s.execute(q)).rowcount > 0
 
     async def project_for_key(self, key: str) -> str | None:
         identity = await self.key_identity(key)

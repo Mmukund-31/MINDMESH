@@ -1,5 +1,6 @@
 import type {
   AgentSpec,
+  ApiKeyInfo,
   Approval,
   BlockedAction,
   Comparison,
@@ -81,6 +82,17 @@ async function request<T>(method: string, path: string, body?: unknown, params?:
 }
 
 const get = <T>(p: string, params?: Record<string, unknown>) => request<T>("GET", p, undefined, params);
+
+/** Download a JSON export (the API key goes in a header, so a plain link cannot be used). */
+export async function downloadJson(path: string, filename: string, params?: Record<string, unknown>) {
+  const doc = await get<unknown>(path, params);
+  const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 const post = <T>(p: string, body?: unknown) => request<T>("POST", p, body ?? {});
 
 export const api = {
@@ -150,6 +162,9 @@ export const api = {
       "/evals/suites",
     ),
   evals: (suite?: string) => get<EvalRun[]>("/evals", { suite }),
+  keys: () => get<ApiKeyInfo[]>("/keys"),
+  createKey: (name: string, role: "admin" | "read") => post<ApiKeyInfo & { key: string }>("/keys", { name, role }),
+  revokeKey: (id: string) => request<void>("DELETE", `/keys/${id}`),
   evalRun: (id: string) => get<EvalRun>(`/evals/${id}`),
   startEval: (suite: string, variants?: string[], model?: string) =>
     post<{ id: string; status: string }>("/evals", { suite, variants, model }),

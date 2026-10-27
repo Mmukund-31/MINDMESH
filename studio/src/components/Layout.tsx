@@ -77,6 +77,8 @@ export function Layout() {
     retry: false,
   });
   const nPending = pending.data?.length ?? 0;
+  // Agents registered with their own (non-scripted) models, e.g. a LangChain or Ollama agent.
+  const realModels = (me.data?.agent_models ?? []).filter((m) => !m.startsWith("scripted:"));
 
   const nav = (
     <nav className="flex flex-col gap-0.5">
@@ -156,8 +158,12 @@ export function Layout() {
                 }
                 data-testid="server-mode"
               >
-                {me.data.model_mode === "live" ? <Cpu className="size-3.5 text-primary" /> : <Bot className="size-3.5 text-info" />}
-                {me.data.model_mode === "live" ? `Live model · ${me.data.live_model}` : "Demo mode · scripted models"}
+                {me.data.model_mode === "live" || realModels.length ? <Cpu className="size-3.5 text-primary" /> : <Bot className="size-3.5 text-info" />}
+                {me.data.model_mode === "live"
+                  ? `Live model · ${me.data.live_model}`
+                  : realModels.length
+                    ? `Agents · ${realModels.join(", ")}`
+                    : "Demo mode · scripted models"}
               </span>
             )}
             <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">

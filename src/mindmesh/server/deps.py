@@ -61,7 +61,7 @@ async def _project_for_key(request: Request, mm: MindMesh, key: str) -> str:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid API key")
         cache.put(h, identity)
     project_id, role = identity
-    request.state.key_role = role
+    request.state.key_role, request.state.key_hash = role, h
     if role != "admin" and request.method not in SAFE_METHODS:
         if not getattr(request.scope.get("endpoint"), "allow_read_only", False):
             raise HTTPException(status.HTTP_403_FORBIDDEN,
@@ -109,3 +109,10 @@ async def stream_mm(
     if project_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or expired stream token")
     return mm.scoped(project_id)
+
+
+async def admin_mm(request: Request, mm: MindMesh = Depends(project_mm)) -> MindMesh:
+    """Like :func:`project_mm`, but only for ``admin`` keys (key management, imports)."""
+    if request.state.key_role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "this endpoint needs an admin API key")
+    return mm

@@ -102,12 +102,14 @@ class ToolExecutor:
         self, call: ToolCallAction, *, step: int, span: str, state: ExecState, approved: bool = False
     ) -> ToolOutcome:
         tool = self.registry.get(call.tool)
-        if tool is None:
+        if tool is None and self.replay_outcomes is None:
             return await self._blocked(
                 call, step, span, PolicyDecision(effect=PolicyEffect.DENY, reason=f"unknown tool '{call.tool}'")
             )
         try:
-            args = tool.validate(call.args)
+            # Safe replay never executes tools, so it works without the agent's code (e.g. an imported run): the
+            # call is still checked against the recording and the current policies, and its recorded outcome reused.
+            args = tool.validate(call.args) if tool is not None else call.args
         except ToolArgumentError as e:
             await self.events.emit(
                 EventType.TOOL_FAILED,

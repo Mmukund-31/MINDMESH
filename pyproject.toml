@@ -24,11 +24,12 @@ dependencies = [
 [project.optional-dependencies]
 server = ["fastapi>=0.115", "uvicorn[standard]>=0.36"]
 postgres = ["psycopg[binary]>=3.2.10", "pgvector>=0.3.6"]
+langchain = ["langchain-core>=0.3"]
 dev = [
   "pytest>=8.3",
   "pytest-asyncio>=1.4",
   "ruff>=0.7",
-  "mindmesh[server]",
+  "mindmesh[server,langchain]",
 ]
 
 [project.scripts]

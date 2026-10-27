@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,14 +20,19 @@ from ..core.errors import InvalidTransition, NotFound, ToolArgumentError
 from ..sdk import MindMesh
 from .deps import KeyCache
 from .ratelimit import RateLimitMiddleware
-from .routers import control, evals, experiments, memories, runs, stats, workflows
+from .routers import control, evals, experiments, exports, keys, memories, runs, stats, workflows
 from .security import SecurityMiddleware
 
 log = logging.getLogger("mindmesh.server")
+# Studio, prebuilt into the package (scripts/build_studio.py): served at / in development without any setup.
+PACKAGED_STUDIO = Path(__file__).parent / "studio"
 
 
 def install_apps(mm: MindMesh, modules: str) -> list[str]:
-    """Import ``module`` paths and call their ``install(mm)`` to register tools and agents."""
+    """Import ``module`` paths and call their ``install(mm)`` to register tools and agents. Modules in the
+    current directory are found too (the ``mindmesh`` launcher does not put it on ``sys.path``)."""
+    if os.getcwd() not in sys.path:
+        sys.path.append(os.getcwd())
     loaded = []
     for name in [m.strip() for m in modules.split(",") if m.strip()]:
         mod = importlib.import_module(name)
@@ -130,11 +137,12 @@ def create_app(
             return JSONResponse({"status": "unavailable", "database": "unreachable"}, status_code=503)
         return {"status": "ok", "database": "postgresql" if mm.db.is_postgres else "sqlite"}
 
-    for r in (runs.router, memories.router, control.router, workflows.router, evals.router, stats.router,
-              experiments.router):
+    # exports first: its static paths (/runs/import) must win over /runs/{run_id}-style routes
+    for r in (exports.router, runs.router, memories.router, control.router, workflows.router, evals.router,
+              stats.router, experiments.router, keys.router):
         app.include_router(r, prefix="/api/v1")
 
-    studio = settings.studio_dir
+    studio = settings.studio_dir or (str(PACKAGED_STUDIO) if not settings.is_production else None)
     if studio and Path(studio, "index.html").exists():
         app.mount("/assets", StaticFiles(directory=Path(studio, "assets")), name="assets")
 

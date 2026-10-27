@@ -72,7 +72,9 @@ class ApiKeyRow(Base):
     name: Mapped[str] = mapped_column(String(120))
     key_hash: Mapped[str] = mapped_column(String(64), unique=True)
     role: Mapped[str] = mapped_column(String(16), default="admin", server_default="admin")  # admin | read
+    prefix: Mapped[str | None] = mapped_column(String(16))  # first characters, to tell keys apart in listings
     created_at: Mapped[datetime] = _ts()
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RunRow(Base):

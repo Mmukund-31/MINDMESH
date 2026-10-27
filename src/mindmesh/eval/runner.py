@@ -5,8 +5,10 @@ target project's ``eval_runs`` table and written to ``bench/results``."""
 from __future__ import annotations
 
 import importlib
+import os
 import shutil
 import statistics
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -152,6 +154,8 @@ async def run_task(suite: Suite, variant_name: str, variant: Variant, task: Eval
                    seed: int) -> dict[str, Any]:
     from ..sdk import MindMesh  # local import: avoid cycle
 
+    if os.getcwd() not in sys.path:  # suites of your own app: `mindmesh bench --suite my_suite.yaml` in its directory
+        sys.path.append(os.getcwd())
     app = importlib.import_module(suite.app)
     tmp = tempfile.mkdtemp(prefix="mindmesh-eval-")
     mm = await MindMesh(f"sqlite:///{Path(tmp) / 'eval.db'}", project=f"eval-{variant_name}").init()

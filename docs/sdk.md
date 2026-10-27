@@ -105,3 +105,29 @@ makes evaluation suites reproducible. Swap `model` for `ollama:…` to test a re
 from mindmesh.models import register_provider
 register_provider("vllm", lambda model: MyVLLMProvider(model))   # AgentSpec(model="vllm:Qwen3-32B")
 ```
+
+## Framework integrations
+
+Bring a LangChain agent's chat model and tools under MindMesh (policies, approvals, tracing, replay):
+
+```python
+from mindmesh.integrations.langchain import connect_langchain_agent
+
+connect_langchain_agent(mm, "payables", ChatOllama(model="qwen3:4b", format="json", reasoning=False),
+                        tools=[get_invoice, pay_invoice], side_effects=["pay_invoice"], system_prompt="…")
+```
+
+Lower-level pieces: `LangChainProvider(chat_model)` and `add_langchain_tool(mm, tool, side_effect=…)`. See
+[integrations/langchain.md](integrations/langchain.md).
+
+## Export and import
+
+```python
+from mindmesh.export import export_run, export_runs, export_evals, import_run
+
+doc = await export_run(mm, run_id)               # mindmesh.run/v1: summary, run, events, checkpoints, approvals
+copy = await import_run(other_mm, doc)           # under new ids, in another project or database
+await other_mm.replay(copy.id)                   # reproduce it, no agent code or model needed
+```
+
+Format reference: [export-format.md](export-format.md).

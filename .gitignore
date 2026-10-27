@@ -20,3 +20,4 @@ studio/playwright-report/
 graphify-out/
 pg_restart_state.json
 studio/*.tsbuildinfo
+studio/dist-package/

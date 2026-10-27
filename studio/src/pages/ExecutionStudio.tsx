@@ -5,6 +5,7 @@ import {
   Activity,
   Ban,
   Check,
+  Download,
   FlaskConical,
   GitCompare,
   Play,
@@ -15,7 +16,7 @@ import {
   ThumbsUp,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, downloadJson } from "@/lib/api";
 import type { ContextReceipt, MMEvent, Run, TraceNode, TraceStep } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -353,6 +354,11 @@ function RunDetail({ runId }: { runId: string }) {
                 title="Re-execute with recorded model & tool outputs (no side effects)"
               >
                 <FlaskConical /> Safe replay
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => downloadJson(`/runs/${run.id}/export`, `${run.id}.json`)}
+                title="Download the run as JSON (mindmesh.run/v1): summary, agent spec, every event. Import it elsewhere with `mindmesh runs import`."
+                data-testid="export-run">
+                <Download /> Export JSON
               </Button>
               {run.parent_run_id && (
                 <Button size="sm" variant="outline" asChild>

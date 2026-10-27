@@ -121,6 +121,12 @@ class ToolRegistry:
         self._tools[name] = spec
         return spec
 
+    def add(self, spec: ToolSpec) -> ToolSpec:
+        """Register a prebuilt spec (integrations that already have an argument model, e.g. LangChain tools).
+        ``spec.args_model`` should forbid extra fields, like the models built from function signatures."""
+        self._tools[spec.name] = spec
+        return spec
+
     def get(self, name: str) -> ToolSpec | None:
         return self._tools.get(name)
 

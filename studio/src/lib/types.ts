@@ -373,12 +373,23 @@ export interface RunSummary {
   model: string | null;
 }
 
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  role: "admin" | "read";
+  prefix: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  current: boolean;
+}
+
 export interface Me {
   project_id: string;
   project_name: string;
   model_mode: "demo" | "live";
   live_model: string | null;
   role: "admin" | "read";
+  agent_models: string[];
 }
 
 export interface ExperimentRunInfo {

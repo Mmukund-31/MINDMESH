@@ -20,11 +20,21 @@ MINDMESH is not another chatbot or agent framework. It wraps *your* agents with:
 Everything runs locally: SQLite or PostgreSQL + pgvector, and Ollama with open-weight models (e.g. Qwen3).
 No proprietary API is required.
 
+**New here? Start with the [10-minute quickstart](docs/quickstart.md):** connect a real LangChain agent, inspect
+what it did, and reproduce and fix a failure. Then explore the [invoice desk example](examples/invoice_desk).
+Live demo (read-only): https://mindmesh-studio.vercel.app
+
+```bash
+pip install "mindmesh[server,langchain] @ git+https://github.com/Mmukund-31/MINDMESH.git"
+mindmesh serve                          # API + Studio on http://127.0.0.1:8000
+```
+
 ---
 
-## Quickstart (no Docker, fully offline)
+## Working on MINDMESH itself (no Docker, fully offline)
 
-Requires Python ≥ 3.12 and Node ≥ 20.19.
+Requires Python ≥ 3.12 and Node ≥ 20.19. To *use* MINDMESH, the `pip install` above is enough (Studio is
+bundled); see [CONTRIBUTING.md](CONTRIBUTING.md) to change it.
 
 ```bash
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
@@ -52,7 +62,7 @@ mindmesh demo seed        # optional: extra runs, approvals and a workflow to ex
 ```
 
 Studio uses the development API key `mm_dev_local_key_change_me` by default. Set `MINDMESH_API_KEY`
-on the server, or create a key with `mindmesh create-key --project <name>`.
+on the server, or create a key with `mindmesh keys create --project <name>`.
 
 ## Full stack with Docker Compose
 
@@ -80,8 +90,9 @@ The server image defaults to `MINDMESH_ENV=production`. In this mode the server 
 Other settings: `MINDMESH_AUTO_MIGRATE` (default `true`), `MINDMESH_MAX_BODY_BYTES` (default 1 MiB),
 `MINDMESH_STREAM_TOKEN_TTL` (default 60 s) and `MINDMESH_DOCS` (OpenAPI docs; off in production by default).
 Rate limiting: `MINDMESH_RATE_LIMIT` (requests per minute per client IP, default 300) and
-`MINDMESH_RATE_LIMIT_WRITES` (non-GET requests, default 60); `0` disables. Behind an edge proxy, set
-`MINDMESH_CLIENT_IP_HEADER` (e.g. `true-client-ip`) so clients are identified by an address they cannot forge.
+`MINDMESH_RATE_LIMIT_WRITES` (non-GET requests, default 60); `0` disables. Behind proxies, set uvicorn's
+`FORWARDED_ALLOW_IPS` to exactly the proxies' ranges so the client is an address callers cannot forge (or set
+`MINDMESH_CLIENT_IP_HEADER` to a header your edge sets itself).
 A public read-only demo: `MINDMESH_PUBLIC_KEY` (a `read` key bound to `MINDMESH_PUBLIC_PROJECT`, default `demo`)
 and `MINDMESH_SEED_PUBLIC=true` to seed that project on first boot. Hosted on Render + Vercel:
 [docs/deployment.md](docs/deployment.md).
@@ -89,8 +100,8 @@ Generate secrets with `python -c "import secrets; print(secrets.token_urlsafe(32
 
 API keys are accepted only in the `X-API-Key` or `Authorization: Bearer` headers, never in URLs. Browsers
 that use `EventSource` mint a token bound to one run with `POST /api/v1/runs/{id}/stream-token`, then open
-`GET /api/v1/runs/{id}/stream?token=…`. Additional keys: `mindmesh create-key --project <name>` (add
-`--role read` for a read-only key); revoke them with `mindmesh revoke-key <key>`.
+`GET /api/v1/runs/{id}/stream?token=…`. Additional keys: `mindmesh keys create --project <name>` (add
+`--role read` for a read-only key); list them with `mindmesh keys list` and revoke with `mindmesh keys revoke <id or key>`, or manage them in Studio under Settings.
 
 ### Schema migrations
 
@@ -188,10 +199,15 @@ src/mindmesh/
   replay/         safe replay, rerun, run diff
   eval/           suites, runner, metrics, reports (suites/*.yaml)
   storage/        SQLAlchemy models, repositories (project-scoped), pgvector
-  server/         FastAPI app + routers
+  server/         FastAPI app + routers (+ studio/: the bundled Studio build)
+  integrations/   LangChain (models and tools under MindMesh)
+  export.py       JSON export/import of runs and benchmark results
+  cli.py          `mindmesh`: serve, projects, keys, runs, evals, bench, db, demo
   demo/           signature refund scenario, research-team workflow
 studio/           React + TypeScript + Vite + Tailwind + shadcn/ui + React Flow
-tests/            unit, integration (HTTPX), security, postgres
+examples/         quickstart agent, invoice_desk example app
+scripts/          verify_deployment.py, build_studio.py
+tests/            unit, integration (HTTPX), security, postgres, live (Ollama)
 docs/             architecture, SDK, memory/context, policies, replay, benchmarks
 ```
 
@@ -212,6 +228,10 @@ production-mode server smoke test), and builds both Docker images.
 
 ## Documentation
 
+- [Quickstart: connect a real agent in 10 minutes](docs/quickstart.md)
+- [Example app: invoice desk](examples/invoice_desk/README.md)
+- [LangChain integration](docs/integrations/langchain.md)
+- [JSON export format](docs/export-format.md)
 - [Architecture](docs/architecture.md)
 - [SDK guide](docs/sdk.md)
 - [Memory & context engineering](docs/memory-and-context.md)

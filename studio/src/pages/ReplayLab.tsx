@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { BarChart3, CheckCircle2, FlaskConical, Loader2, Play, RotateCcw, XCircle } from "lucide-react";
-import { api } from "@/lib/api";
+import { BarChart3, CheckCircle2, Download, FlaskConical, Loader2, Play, RotateCcw, XCircle } from "lucide-react";
+import { api, downloadJson } from "@/lib/api";
 import type { EvalRun } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,9 +78,15 @@ function Benchmarks() {
           <CardTitle className="flex items-center gap-2"><BarChart3 className="size-4" /> Reproducible benchmark: {suite?.name ?? "…"}</CardTitle>
           <CardDescription>{suite?.description}</CardDescription>
         </div>
-        <Button onClick={() => suite && start.mutate(suite.name)} disabled={!suite || running} data-testid="run-benchmark">
-          {running ? <Loader2 className="animate-spin" /> : <Play />} Run benchmark
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => downloadJson("/export/evals", "benchmarks.json", { suite: suite?.name })}
+            disabled={latest.length === 0} title="Download all results of this suite as JSON (mindmesh.eval/v1)" data-testid="export-evals">
+            <Download /> Export JSON
+          </Button>
+          <Button onClick={() => suite && start.mutate(suite.name)} disabled={!suite || running} data-testid="run-benchmark">
+            {running ? <Loader2 className="animate-spin" /> : <Play />} Run benchmark
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <ErrorNote error={start.error ?? jobQ.data?.error} />
