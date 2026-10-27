@@ -33,7 +33,7 @@ Secrets live only in Render's environment and in the operator's local `~/.mindme
 | `MINDMESH_API_KEY`, `MINDMESH_SECRET_KEY` | 32+ character secrets |
 | `MINDMESH_PUBLIC_KEY` | read-only demo key, with `MINDMESH_SEED_PUBLIC=true` |
 | `MINDMESH_CORS_ORIGINS` | `https://mindmesh-studio.vercel.app,https://mindmesh-studio-dev.vercel.app` |
-| `MINDMESH_RATE_LIMIT`, `MINDMESH_RATE_LIMIT_WRITES` | `300`, `60` per client IP per minute |
+| `MINDMESH_RATE_LIMIT`, `MINDMESH_RATE_LIMIT_WRITES` | `600`, `60` per client IP per minute (a busy Studio session uses ~150 requests/min) |
 | `FORWARDED_ALLOW_IPS` | Render's private ranges plus Cloudflare's published ranges (see `render.yaml`) |
 | `PORT` | `8000` |
 

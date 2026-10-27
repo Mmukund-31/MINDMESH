@@ -19,7 +19,9 @@ export function fmtMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "–";
   if (ms < 1) return "<1 ms";
   if (ms < 1000) return `${Math.round(ms)} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  if (ms < 3_600_000) return `${(ms / 60_000).toFixed(1)} min`;
+  return `${(ms / 3_600_000).toFixed(1)} h`;
 }
 
 export function parseTs(iso: string): Date {

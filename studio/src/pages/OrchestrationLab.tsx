@@ -431,7 +431,7 @@ export default function OrchestrationLab() {
         actions={<Button size="sm" onClick={() => start.mutate()} disabled={start.isPending} data-testid="start-workflow"><Play /> Run research-brief</Button>}
       />
       <ErrorNote error={start.error} />
-      <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
         <Panel title="Workflow runs" className="h-fit">
           {list.data?.length === 0 && <EmptyState title="No workflows yet" />}
           <ul className="divide-y">

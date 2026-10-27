@@ -101,6 +101,21 @@ export interface Health {
   database?: string;
 }
 
+/** Download a text export (e.g. a Markdown report) with the API key in a header. */
+export async function downloadText(path: string, filename: string, params?: Record<string, unknown>) {
+  const url = new URL(`${BASE}/api/v1${path}`, window.location.origin);
+  for (const [k, v] of Object.entries(params ?? {})) if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+  const res = await fetch(url, { headers: { "X-API-Key": getApiKey() } });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  const blob = new Blob([await res.text()], { type: res.headers.get("content-type") ?? "text/plain" });
+  const href = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(href);
+}
+
 /** Unauthenticated liveness: API up and database reachable. */
 export async function health(): Promise<Health> {
   const res = await fetch(new URL(`${BASE}/healthz`, window.location.origin));

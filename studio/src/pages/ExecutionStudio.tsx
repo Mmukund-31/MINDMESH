@@ -533,7 +533,7 @@ export default function ExecutionStudio() {
           </Button>
         }
       />
-      <div className="grid gap-3 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="h-[340px] lg:sticky lg:top-0 lg:h-[calc(100vh-112px)]">
           <RunList selected={runId} />
         </div>

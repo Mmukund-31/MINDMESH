@@ -261,13 +261,13 @@ function ModelUsage({ d }: { d: OverviewData }) {
       {d.models.length === 0 ? (
         <div className="px-3 py-6 text-xs text-muted-foreground">No model calls yet.</div>
       ) : (
-        <table className="w-full text-xs">
+        <table className="w-full table-fixed text-xs">
           <thead>
             <tr className="border-b text-[10px] tracking-wide text-muted-foreground uppercase">
               <th className="px-3 py-1.5 text-left font-medium">Model</th>
-              <th className="px-2 py-1.5 text-right font-medium">Calls</th>
-              <th className="px-2 py-1.5 text-right font-medium">Tokens</th>
-              <th className="px-3 py-1.5 text-right font-medium">p50</th>
+              <th className="w-14 px-2 py-1.5 text-right font-medium">Calls</th>
+              <th className="w-20 px-2 py-1.5 text-right font-medium">Tokens</th>
+              <th className="w-16 px-3 py-1.5 text-right font-medium">p50</th>
             </tr>
           </thead>
           <tbody className="divide-y">

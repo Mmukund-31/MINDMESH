@@ -610,11 +610,11 @@ export default function Experiment() {
   return (
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-lg bg-primary/12 p-2 text-primary"><Sparkles className="size-5" /></div>
+        <div className="flex items-start gap-2.5">
+          <Sparkles className="mt-1 size-4 shrink-0 text-primary" />
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Guided experiment</h1>
-            <p className="text-sm text-muted-foreground">Watch an agent fail, find out why, fix it, and measure the improvement. About five minutes.</p>
+            <h1 className="text-base font-semibold tracking-tight">Guided experiment</h1>
+            <p className="text-xs text-muted-foreground">Watch an agent fail, find out why, fix it, and measure the improvement. About five minutes.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-start gap-2">

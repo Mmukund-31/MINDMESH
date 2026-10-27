@@ -89,8 +89,8 @@ The server image defaults to `MINDMESH_ENV=production`. In this mode the server 
 
 Other settings: `MINDMESH_AUTO_MIGRATE` (default `true`), `MINDMESH_MAX_BODY_BYTES` (default 1 MiB),
 `MINDMESH_STREAM_TOKEN_TTL` (default 60 s) and `MINDMESH_DOCS` (OpenAPI docs; off in production by default).
-Rate limiting: `MINDMESH_RATE_LIMIT` (requests per minute per client IP, default 300) and
-`MINDMESH_RATE_LIMIT_WRITES` (non-GET requests, default 60); `0` disables. Behind proxies, set uvicorn's
+Rate limiting: `MINDMESH_RATE_LIMIT` (requests per minute per client IP, default 600 in production, off in
+development) and `MINDMESH_RATE_LIMIT_WRITES` (non-GET requests, default 60 in production); `0` disables. Behind proxies, set uvicorn's
 `FORWARDED_ALLOW_IPS` to exactly the proxies' ranges so the client is an address callers cannot forge (or set
 `MINDMESH_CLIENT_IP_HEADER` to a header your edge sets itself).
 A public read-only demo: `MINDMESH_PUBLIC_KEY` (a `read` key bound to `MINDMESH_PUBLIC_PROJECT`, default `demo`)

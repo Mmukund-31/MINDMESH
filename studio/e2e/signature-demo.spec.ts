@@ -14,7 +14,9 @@ test("diagnose a wrong refund decision, fix memory, rerun and compare", async ({
   await page.getByRole("link", { name: "Execution Studio" }).click();
   await page.getByTestId("run-row").filter({ hasText: "A-7731" }).first().click();
   await expect(page.getByTestId("run-answer")).toContainText("DENIED");
-  await expect(page.getByTestId("trace-graph")).toBeVisible();
+  // Outcome first, then the connected trace; the findings name the cause before any digging.
+  await expect(page.getByTestId("trace-timeline")).toBeVisible();
+  await expect(page.getByTestId("findings")).toContainText("Context excluded 1 memory");
 
   // The context receipt explains the cause: the updated policy was excluded (scope_mismatch).
   await page.getByTestId("tab-context").click();
@@ -24,12 +26,12 @@ test("diagnose a wrong refund decision, fix memory, rerun and compare", async ({
 
   // 3. Fix it in Memory Explorer: promote the billing-scoped policy to project scope.
   await excluded.getByRole("link").click();
-  await expect(page.getByRole("dialog")).toContainText("agent:billing");
+  await expect(page.getByTestId("memory-detail")).toContainText("agent:billing");
+  await expect(page.getByTestId("memory-visibility")).toBeVisible();
   await page.getByTestId("edit-memory").click();
   await page.getByTestId("scope-input").fill("project");
   await page.getByTestId("save-memory").click();
-  await expect(page.getByRole("dialog")).toContainText("v2");
-  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("memory-detail")).toContainText("v2");
 
   // 4. Rerun the original task with the corrected memory.
   await page.goto(runUrl);
@@ -44,6 +46,7 @@ test("diagnose a wrong refund decision, fix memory, rerun and compare", async ({
   await expect(page.getByTestId("context-added").first()).toContainText("premium customers within 30 days");
 
   // 6. Benchmark: baseline vs misconfigured vs fixed.
+  await page.getByRole("tab", { name: /Benchmarks/ }).click();
   await page.getByTestId("run-benchmark").click();
   const table = page.getByTestId("benchmark-table");
   await expect(table).toBeVisible({ timeout: 45_000 });
@@ -59,13 +62,19 @@ test("approve a paused refund from the Control Room", async ({ page }) => {
   await expect(page.getByText("Decision history")).toBeVisible();
   await page.getByRole("tab", { name: /Blocked actions/ }).click();
   await expect(page.getByTestId("blocked-row").filter({ hasText: "block-large-refunds" }).first()).toBeVisible();
+  // Every decision is in the audit trail, attributed to the key that made it.
+  await page.getByRole("tab", { name: /Audit trail/ }).click();
+  await expect(page.getByTestId("audit-row").first()).toContainText("approval.approved");
+  // The permission matrix resolves rules per agent and tool: large refunds need approval or are denied.
+  await page.getByRole("tab", { name: /Tool permissions/ }).click();
+  await expect(page.getByTestId("perm-support-refund.issue")).toContainText("deny if amount gt 500");
 });
 
 test("orchestration lab renders the research workflow DAG", async ({ page }) => {
   await page.goto("/orchestration");
   await expect(page.getByTestId("workflow-graph")).toBeVisible();
   await expect(page.getByTestId("wf-task-verify")).toContainText("succeeded");
-  await expect(page.getByText(/rejected write/)).toBeVisible();
+  await expect(page.getByTestId("task-inspector")).toContainText("verify rejected write");
 });
 
 /**
@@ -125,6 +134,8 @@ test("guided experiment: fail, diagnose, fix, compare, stress-test and measure",
 
   // 6. Measure: the scorecard and the plain-language improvement.
   await page.getByTestId("run-scorecard").click();
+  // Earlier tests may have stored refund results already: wait for this measurement, not a previous one.
+  await expect(page.getByTestId("run-scorecard")).toContainText("Measure again", { timeout: 60_000 });
   const score = page.getByTestId("scorecard");
   await expect(score).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("score-success_rate")).toContainText("100% (7/7)");

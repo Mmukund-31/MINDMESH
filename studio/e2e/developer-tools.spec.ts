@@ -32,7 +32,7 @@ test("export a run and the benchmark results as JSON", async ({ page }) => {
   expect(run.summary.answer).toContain("DENIED");
   expect(run.events.length).toBeGreaterThan(5);
 
-  await page.goto("/replay");
+  await page.goto("/replay?tab=benchmarks");
   await page.getByTestId("run-benchmark").click();
   await expect(page.getByTestId("benchmark-table")).toBeVisible({ timeout: 60_000 });
   const [evalFile] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-evals").click()]);
@@ -41,4 +41,8 @@ test("export a run and the benchmark results as JSON", async ({ page }) => {
   expect(evals.evals.map((e: { variant: string }) => e.variant).sort()).toEqual(
     ["baseline", "mindmesh", "mindmesh-misconfigured"],
   );
+
+  const [report] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-report").click()]);
+  expect(report.suggestedFilename()).toBe("refund-report.md");
+  expect(readFileSync((await report.path())!, "utf8")).toContain("# Benchmark: `refund`");
 });

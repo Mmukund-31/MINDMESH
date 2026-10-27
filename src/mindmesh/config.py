@@ -48,8 +48,9 @@ class Settings:
     public_project: str = "demo"
     seed_public: bool = False
     # Requests per minute per client IP (0 disables); writes also count against the stricter write limit.
-    rate_limit: int = 300
-    rate_limit_writes: int = 60
+    # Off by default in development: a single Studio session polls and streams enough to trip a tight limit.
+    rate_limit: int = 0
+    rate_limit_writes: int = 0
     client_ip_header: str | None = None  # set by the edge proxy, e.g. true-client-ip
 
     @property
@@ -79,8 +80,8 @@ class Settings:
             public_key=e.get("MINDMESH_PUBLIC_KEY") or None,
             public_project=e.get("MINDMESH_PUBLIC_PROJECT", "demo"),
             seed_public=_bool(e.get("MINDMESH_SEED_PUBLIC"), False),
-            rate_limit=int(e.get("MINDMESH_RATE_LIMIT", "300")),
-            rate_limit_writes=int(e.get("MINDMESH_RATE_LIMIT_WRITES", "60")),
+            rate_limit=int(e.get("MINDMESH_RATE_LIMIT", "600" if prod else "0")),
+            rate_limit_writes=int(e.get("MINDMESH_RATE_LIMIT_WRITES", "60" if prod else "0")),
             client_ip_header=e.get("MINDMESH_CLIENT_IP_HEADER") or None,
         )
 

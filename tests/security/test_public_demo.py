@@ -147,3 +147,11 @@ async def test_client_ip_header_identifies_clients_behind_a_proxy():
     for ip in ("192.0.2.1", "192.0.2.2", "192.0.2.1"):
         await mw(scope(ip), None, send)
     assert sent == [200, 200, 429]
+
+
+def test_rate_limit_defaults_by_environment():
+    dev = Settings.from_env({})
+    assert (dev.rate_limit, dev.rate_limit_writes) == (0, 0)  # a local Studio session must never trip it
+    prod = Settings.from_env({"MINDMESH_ENV": "production"})
+    assert (prod.rate_limit, prod.rate_limit_writes) == (600, 60)
+    assert Settings.from_env({"MINDMESH_RATE_LIMIT": "50"}).rate_limit == 50

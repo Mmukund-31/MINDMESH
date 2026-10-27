@@ -21,3 +21,4 @@ graphify-out/
 pg_restart_state.json
 studio/*.tsbuildinfo
 studio/dist-package/
+studio/*.tmp.mjs
