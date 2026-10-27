@@ -226,6 +226,12 @@ def test_parse_action_variants():
     assert b.type == "final_answer" and b.answer == "42"
     with pytest.raises(ModelOutputError):
         parse_action('{"type": "dance"}')
+    # Seen from qwen3:4b without a schema: the task input is quoted before the action.
+    c = parse_action('The input is {"customer_id": "C-1", "order_id": "A-1"}. So:\n'
+                     '{"type": "tool_call", "thought": "t", "tool": "crm.lookup", "args": {"customer_id": "C-1"}}')
+    assert c.tool == "crm.lookup" and c.args == {"customer_id": "C-1"}
+    with pytest.raises(ModelOutputError, match="no action object"):
+        parse_action('Input: {"customer_id": "C-1"} ... (reply cut off)')
 
 
 async def test_secrets_never_reach_the_event_log(mm):

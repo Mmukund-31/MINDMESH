@@ -164,10 +164,17 @@ class Message(BaseModel):
 
 class ModelResponse(BaseModel):
     text: str
-    model: str
+    model: str  # the spec the run asked for, e.g. ``ollama:qwen3:4b``
     tokens_in: int = 0
     tokens_out: int = 0
     latency_ms: float = 0.0
+    # What the provider itself reported (absent for scripted/recorded providers).
+    model_reported: str | None = None  # model name echoed by the backend
+    model_digest: str | None = None  # immutable weights/version id, when the backend exposes one
+    request_id: str | None = None
+    stop_reason: str | None = None
+    usage_reported: bool = False  # False: token counts are local estimates, not provider-reported
+    provider_timing_ms: dict[str, float] = Field(default_factory=dict)
 
 
 class ToolCallAction(BaseModel):
@@ -202,9 +209,21 @@ class Limits(BaseModel):
     max_tokens: int = Field(default=60_000, ge=100)
     timeout_s: float = Field(default=300.0, gt=0)
     tool_timeout_s: float = Field(default=20.0, gt=0)
+    model_timeout_s: float = Field(default=120.0, gt=0)  # per model call, also bounded by timeout_s
     max_retries: int = Field(default=2, ge=0, le=10)  # per tool call / model call
     backoff_base_s: float = Field(default=0.05, ge=0)
     repeated_failure_limit: int = Field(default=2, ge=1)
+
+
+class ClaimCheck(BaseModel):
+    """A final answer matching ``answer_regex`` is accepted only if ``requires_tool`` succeeded earlier in the
+    run. Stops a model from reporting an action (``APPROVED``) it never performed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer_regex: str = Field(min_length=1, max_length=500)
+    requires_tool: str = Field(min_length=1, max_length=200)
+    hint: str = Field(default="", max_length=1000)  # extra guidance sent back to the model
 
 
 class AgentSpec(BaseModel):
@@ -221,6 +240,7 @@ class AgentSpec(BaseModel):
     limits: Limits = Field(default_factory=Limits)
     enforce_policies: bool = True
     remember_outcomes: bool = False  # write an episode memory at the end of each run
+    claim_checks: list[ClaimCheck] = Field(default_factory=list)
 
 
 class RunOverrides(BaseModel):

@@ -55,7 +55,30 @@ serialized `RunState` (history, counters, pending approval), which allows the fo
 - **Approval resume**: the paused tool call is executed (approved) or turned into a `blocked` outcome
   (rejected), and the loop continues.
 - **Crash recovery**: `mindmesh.resume(run_id)` restarts a `RUNNING` run from its latest checkpoint.
-- **Safe replay**: `model.called` + `step.finished` events are the recording.
+  First it reconciles the step that was in flight with the events written after that checkpoint
+  (recorded as `run.resumed.inflight`):
+
+  | Event log shows | Recovery |
+  |---|---|
+  | `step.finished` without its checkpoint | the step is kept as recorded; a recorded final answer ends the run without a new model call |
+  | `approval.requested` | the pause is restored (no second approval is created) |
+  | the tool finished (`tool.finished` / `tool.failed`) | its recorded result is used; the tool does **not** run again |
+  | a side-effecting tool started but never finished | **not re-executed**: the model gets an error saying the outcome is unknown (`guard.triggered: unsafe_reexecution`), and the call still counts toward per-run limits such as `one-refund-per-run` |
+  | nothing, or only a read-only tool started | the step is redone |
+
+  Process shutdown (task cancellation without a cancel request) leaves the run `RUNNING` so this
+  recovery can pick it up.
+- **Cancellation**: `mm.cancel()` or the `cancel_requested` flag (set by any process) interrupts an
+  in-flight model call within `CANCEL_POLL_S` (0.5s); tool calls are not interrupted before
+  `mm.cancel()`'s 10-second grace period.
+- **Model calls** are bounded by `limits.model_timeout_s` and the run's `timeout_s`. Failures are
+  classified (`ModelProviderError.retryable`): timeouts, connection errors, 408/429/5xx are retried
+  with backoff; unknown models and other 4xx fail the run immediately. `model.called` records the
+  provider-reported model name and weights digest, stop reason, token usage (`usage_reported: false`
+  marks local estimates), latency and the provider's own timing breakdown.
+- **Safe replay**: `model.called` + `step.finished` events are the recording, keyed by step (for a
+  step redone after recovery, only its last attempt sequence counts). A replayed action that differs
+  from the recorded one emits `replay.diverged` and is not given the recorded result.
 
 ## Isolation and security
 

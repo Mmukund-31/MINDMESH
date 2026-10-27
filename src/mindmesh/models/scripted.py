@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ..core.errors import ModelProviderError
 from ..core.types import ModelResponse
 from .base import GenerationRequest, estimate_tokens
 
@@ -63,16 +64,30 @@ class ScriptedProvider:
 
 
 class RecordedProvider:
-    """Replays model outputs captured in a previous run (safe replay)."""
+    """Replays model outputs captured in a previous run (safe replay).
 
-    def __init__(self, responses: list[ModelResponse], name: str = "recorded"):
+    Given a list, responses are served in order. Given a ``{step: [responses]}`` mapping, each step is
+    served its own recorded attempts, so replay stays aligned even when the original run redid a step.
+    Running out is a permanent error: the replay has diverged and must not be retried.
+    """
+
+    def __init__(self, responses: list[ModelResponse] | dict[int, list[ModelResponse]], name: str = "recorded"):
         self.name = name
-        self._responses = list(responses)
+        self._by_step = {k: list(v) for k, v in responses.items()} if isinstance(responses, dict) else None
+        self._responses = [] if isinstance(responses, dict) else list(responses)
         self._i = 0
+        self._served: dict[int, int] = {}
 
     async def generate(self, request: GenerationRequest) -> ModelResponse:
-        if self._i >= len(self._responses):
-            raise RuntimeError("recorded model responses exhausted: execution diverged from the original run")
-        r = self._responses[self._i]
-        self._i += 1
-        return r
+        if self._by_step is not None:
+            pool, i = self._by_step.get(request.step, []), self._served.get(request.step, 0)
+            self._served[request.step] = i + 1
+        else:
+            pool, i = self._responses, self._i
+            self._i += 1
+        if i >= len(pool):
+            raise ModelProviderError(
+                f"recorded model responses exhausted at step {request.step}: execution diverged from the "
+                "original run", retryable=False, kind="replay_diverged",
+            )
+        return pool[i]

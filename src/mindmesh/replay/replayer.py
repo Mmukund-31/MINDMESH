@@ -22,24 +22,36 @@ if TYPE_CHECKING:
     from ..sdk import MindMesh
 
 
-async def load_recording(mm: MindMesh, run_id: str) -> tuple[list[ModelResponse], dict[int, dict[str, Any]]]:
+async def load_recording(
+    mm: MindMesh, run_id: str
+) -> tuple[dict[int, list[ModelResponse]], dict[int, dict[str, Any]]]:
+    """Recorded model responses and tool outcomes, keyed by step.
+
+    If a step was executed more than once (it was interrupted and redone during crash recovery),
+    only the final attempt sequence counts: a new sequence starts at every ``attempt == 1``.
+    Each outcome carries the recorded action under ``recorded_action`` so replay can detect divergence.
+    """
     events = await mm.repos.events.list(run_id, types=[EventType.MODEL_CALLED, EventType.STEP_FINISHED])
-    responses: list[ModelResponse] = []
+    responses: dict[int, list[ModelResponse]] = {}
     outcomes: dict[int, dict[str, Any]] = {}
     for e in events:
-        if e.type == EventType.MODEL_CALLED:
+        if e.type == EventType.MODEL_CALLED and e.step is not None:
             p = e.payload
-            responses.append(
+            if p.get("attempt", 1) == 1:
+                responses[e.step] = []
+            responses.setdefault(e.step, []).append(
                 ModelResponse(
                     text=p.get("response", ""),
                     model=f"replay:{p.get('model', '?')}",
                     tokens_in=p.get("tokens_in", 0),
                     tokens_out=p.get("tokens_out", 0),
                     latency_ms=0.0,
+                    model_reported=p.get("model_reported"),
+                    model_digest=p.get("model_digest"),
                 )
             )
         elif e.type == EventType.STEP_FINISHED and e.step is not None:
-            outcomes[e.step] = e.payload.get("outcome", {})
+            outcomes[e.step] = {**e.payload.get("outcome", {}), "recorded_action": e.payload.get("action")}
     return responses, outcomes
 
 

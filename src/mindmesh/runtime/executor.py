@@ -212,6 +212,16 @@ class ToolExecutor:
             EventType.TOOL_STARTED, {"tool": call.tool, "args": args, "replayed": True},
             step=step, span_id=tool_span, parent_span_id=span,
         )
+        rec_action = (recorded or {}).get("recorded_action") or {}
+        if rec_action and (rec_action.get("tool") != call.tool or (rec_action.get("args") or {}) != call.args):
+            await self.events.emit(
+                EventType.REPLAY_DIVERGED,
+                {"step": step, "tool": call.tool, "args": call.args, "recorded_tool": rec_action.get("tool"),
+                 "recorded_args": rec_action.get("args"), "reason": "replayed action differs from the recording"},
+                step=step, parent_span_id=span,
+            )
+            return ToolOutcome(status="error", error="replay diverged: action differs from the recording",
+                               decision=decision)
         if not recorded or recorded.get("status") not in ("ok", "error"):
             await self.events.emit(
                 EventType.REPLAY_DIVERGED,

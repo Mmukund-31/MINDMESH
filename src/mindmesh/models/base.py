@@ -23,6 +23,7 @@ class GenerationRequest:
     task_input: dict[str, Any] = field(default_factory=dict)
     tools: list[dict[str, Any]] = field(default_factory=list)
     agent: str = ""
+    step: int = 0
 
 
 @runtime_checkable

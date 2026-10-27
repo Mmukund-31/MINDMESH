@@ -15,6 +15,7 @@ Example::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import Callable
 from typing import Any
@@ -304,7 +305,9 @@ class MindMesh:
             try:
                 await asyncio.wait_for(asyncio.shield(entry[0]), 10)
             except TimeoutError:
-                entry[0].cancel()
+                entry[0].cancel()  # the runner records CANCELLED before the task ends
+                with contextlib.suppress(asyncio.CancelledError):
+                    await entry[0]
             return await self.repos.runs.get(run_id)
         # Not executing in this process: paused/pending runs can be finalized directly.
         if RunStatus(run.status) in (RunStatus.PENDING, RunStatus.WAITING_APPROVAL):

@@ -40,4 +40,19 @@ class RunCancelled(MindMeshError):
 
 
 class ModelOutputError(MindMeshError):
-    pass
+    kind = "invalid_output"
+
+
+class UnsupportedClaim(ModelOutputError):
+    """A final answer asserts an outcome the run's tool results do not support."""
+
+    kind = "unsupported_claim"
+
+
+class ModelProviderError(MindMeshError):
+    """A model backend failed. ``retryable`` separates transient faults (timeouts, 5xx, 429,
+    connection errors) from permanent ones (unknown model, bad request, auth)."""
+
+    def __init__(self, message: str, *, retryable: bool, status: int | None = None, kind: str = "provider"):
+        super().__init__(message)
+        self.retryable, self.status, self.kind = retryable, status, kind

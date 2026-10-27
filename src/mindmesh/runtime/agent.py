@@ -8,18 +8,25 @@ Each step: assemble context (receipt) -> model call (bounded retries, output
 repair) -> policy-checked tool execution -> event log -> checkpoint. Runs can be
 paused for human approval, resumed from the latest checkpoint (also after a
 crash), cancelled cooperatively, and replayed from recorded outputs.
+
+Crash recovery reconciles the interrupted step with the persisted event log
+before continuing: a tool call the log shows already ran is never executed a
+second time, and a side-effecting call whose outcome is unknown is reported to
+the model as failed instead of being repeated.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ..core import clock
-from ..core.errors import BudgetExceeded, ModelOutputError, RunCancelled
+from ..core.errors import BudgetExceeded, ModelOutputError, ModelProviderError, RunCancelled, UnsupportedClaim
 from ..core.events import EventLog, EventType
 from ..core.ids import new_id
 from ..core.state import TERMINAL_RUN, RunStatus, transition
@@ -38,13 +45,14 @@ from ..core.types import (
 )
 from ..models.base import GenerationRequest, ModelProvider, estimate_tokens
 from ..policy.engine import PolicyEngine
-from .executor import ExecState, ToolExecutor, ToolOutcome
+from .executor import ExecState, ToolExecutor, ToolOutcome, call_signature
 from .prompting import ACTION_SCHEMA, build_messages, parse_action
 
 if TYPE_CHECKING:
     from ..sdk import MindMesh
 
 MAX_LOGGED_MESSAGE_CHARS = 6000
+CANCEL_POLL_S = 0.5  # how often an in-flight model call checks for a cancel request
 
 
 @dataclass
@@ -139,8 +147,11 @@ class AgentRunner:
             state.pending = None
             await self._finish_step(state, pending["step"], pending["span"], action, outcome)
         elif status == RunStatus.RUNNING:
-            await self.events.emit(EventType.RUN_RESUMED, {"recovered": True, "from_step": state.step},
-                                   span_id=self.events.root_span)
+            recovery = await self._recover_inflight(state, ckpt["event_seq"] if ckpt else 0)
+            await self.events.emit(
+                EventType.RUN_RESUMED, {"recovered": True, "from_step": state.step, "inflight": recovery},
+                span_id=self.events.root_span,
+            )
         elif status == RunStatus.PENDING:
             return await self.start()
         else:
@@ -157,6 +168,12 @@ class AgentRunner:
         except BudgetExceeded as e:
             await self.events.emit(EventType.BUDGET_EXCEEDED, {"reason": str(e)}, span_id=self.events.root_span)
             await self._terminate(RunStatus.FAILED, state, error=f"budget exceeded: {e}")
+        except asyncio.CancelledError:
+            # A cancel request that had to interrupt the task is recorded; any other task cancellation
+            # (process shutdown) leaves the run RUNNING so it can be recovered from its checkpoint.
+            if self.cancel_event.is_set():
+                await self._terminate(RunStatus.CANCELLED, state, error="cancelled by request")
+            raise
         except Exception as e:  # noqa: BLE001 - any crash must end in a recorded terminal state
             await self._terminate(RunStatus.FAILED, state, error=f"{type(e).__name__}: {e}")
         return self.run
@@ -179,7 +196,7 @@ class AgentRunner:
             await self.events.emit(
                 EventType.CONTEXT_ASSEMBLED, receipt.model_dump(mode="json"), step=step, parent_span_id=span
             )
-            action = await self._decide(step, span, state, receipt)
+            action = await self._decide(step, span, state, receipt, deadline)
 
             if isinstance(action, FinalAnswerAction):
                 state.history.append({"step": step, "action": action.model_dump(), "outcome": {"status": "final"}})
@@ -261,7 +278,7 @@ class AgentRunner:
             evidence=evidence,
         )
 
-    async def _decide(self, step: int, span: str, state: RunState, receipt: ContextReceipt):
+    async def _decide(self, step: int, span: str, state: RunState, receipt: ContextReceipt, deadline: float):
         limits = self.spec.limits
         tools = self.mm.tools.specs(self.spec.tools)
         base = build_messages(
@@ -287,26 +304,40 @@ class AgentRunner:
                 task_input=self.run.input,
                 tools=[t.json_schema() for t in tools],
                 agent=self.spec.name,
+                step=step,
             )
             t0 = time.perf_counter()
             try:
-                resp: ModelResponse = await self.provider.generate(req)
+                resp: ModelResponse = await self._call_model(req, deadline)
+            except (RunCancelled, BudgetExceeded):
+                raise
             except Exception as e:  # transport / provider failure
+                err = e if isinstance(e, ModelProviderError) else ModelProviderError(
+                    f"{type(e).__name__}: {e}", retryable=True)  # unknown provider error: assume transient
+                retry = err.retryable and attempt <= limits.max_retries
+                backoff = limits.backoff_base_s * 2 ** (attempt - 1)
                 await self.events.emit(
                     EventType.MODEL_FAILED,
-                    {"error": f"{type(e).__name__}: {e}", "attempt": attempt, "kind": "provider"},
+                    {"error": str(err), "attempt": attempt, "kind": err.kind, "status": err.status,
+                     "retryable": err.retryable, "will_retry": retry, "backoff_s": backoff if retry else None,
+                     "model": self.provider.name},
                     step=step, parent_span_id=span, duration_ms=(time.perf_counter() - t0) * 1000,
                 )
-                if attempt <= limits.max_retries:
-                    await asyncio.sleep(limits.backoff_base_s * 2 ** (attempt - 1))
+                if retry:
+                    await asyncio.sleep(backoff)
                     continue
-                raise
+                raise err from e
+            wall_ms = (time.perf_counter() - t0) * 1000
             state.tokens_in += resp.tokens_in
             state.tokens_out += resp.tokens_out
             await self.events.emit(
                 EventType.MODEL_CALLED,
                 {
                     "model": resp.model,
+                    "model_reported": resp.model_reported,
+                    "model_digest": resp.model_digest,
+                    "request_id": resp.request_id,
+                    "stop_reason": resp.stop_reason,
                     "attempt": attempt,
                     "messages": [
                         {"role": m.role, "content": m.content[:MAX_LOGGED_MESSAGE_CHARS]} for m in req.messages
@@ -314,25 +345,174 @@ class AgentRunner:
                     "response": resp.text,
                     "tokens_in": resp.tokens_in,
                     "tokens_out": resp.tokens_out,
+                    "usage_reported": resp.usage_reported,
                     "latency_ms": resp.latency_ms,
+                    "wall_ms": wall_ms,
+                    "provider_timing_ms": resp.provider_timing_ms,
                 },
                 step=step, parent_span_id=span, duration_ms=resp.latency_ms,
             )
             if state.tokens_in + state.tokens_out > limits.max_tokens:
                 raise BudgetExceeded(f"max_tokens={limits.max_tokens} exceeded")
             try:
-                return parse_action(resp.text)
+                action = parse_action(resp.text)
+                self._check_claims(action, state)
+                return action
             except ModelOutputError as e:
+                if isinstance(e, UnsupportedClaim):
+                    await self.events.emit(
+                        EventType.GUARD_TRIGGERED, {"guard": "unsupported_claim", "reason": str(e)},
+                        step=step, parent_span_id=span,
+                    )
                 await self.events.emit(
-                    EventType.MODEL_FAILED, {"error": str(e), "attempt": attempt, "kind": "invalid_output"},
+                    EventType.MODEL_FAILED,
+                    {"error": str(e), "attempt": attempt, "kind": e.kind, "retryable": True,
+                     "will_retry": attempt <= limits.max_retries},
                     step=step, parent_span_id=span,
                 )
                 if attempt > limits.max_retries:
                     raise
+                cut = " It was cut off at the length limit, so do not reason in prose." if resp.stop_reason == "length" else ""
                 repair = [
                     Message(role="assistant", content=resp.text[:2000]),
-                    Message(role="user", content=f"Your reply was invalid ({e}). Reply with ONE JSON object only."),
+                    Message(role="user",
+                            content=f"Your reply was invalid ({e}).{cut} Reply with ONE JSON object only."),
                 ]
+
+    def _check_claims(self, action, state: RunState) -> None:
+        if not isinstance(action, FinalAnswerAction):
+            return
+        for c in self.spec.claim_checks:
+            if not re.search(c.answer_regex, action.answer):
+                continue
+            if not any(h["action"].get("tool") == c.requires_tool and h["outcome"].get("status") == "ok"
+                       for h in state.history):
+                raise UnsupportedClaim(
+                    f"the answer matches /{c.answer_regex}/ but {c.requires_tool} has not succeeded in this run. "
+                    f"{c.hint}".strip()
+                )
+
+    async def _call_model(self, req: GenerationRequest, deadline: float) -> ModelResponse:
+        """One provider call, bounded by ``model_timeout_s`` and the run deadline, abandoned on cancel."""
+        limits = self.spec.limits
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise BudgetExceeded(f"timeout_s={limits.timeout_s} exceeded")
+        budget = min(limits.model_timeout_s, remaining)
+        call = asyncio.ensure_future(self.provider.generate(req))
+        try:
+            async with asyncio.timeout(budget):
+                while True:
+                    cancelled = asyncio.ensure_future(self.cancel_event.wait())
+                    done, _ = await asyncio.wait({call, cancelled}, timeout=CANCEL_POLL_S,
+                                                 return_when=asyncio.FIRST_COMPLETED)
+                    cancelled.cancel()
+                    if call in done:
+                        return call.result()
+                    await self._check_cancel()  # in-process event, or a cancel flag set by another process
+        except TimeoutError:
+            if call.done() and not call.cancelled() and call.exception() is not None:
+                raise call.exception() from None  # the provider's own timeout error, not ours
+            raise ModelProviderError(f"model call exceeded {budget:.1f}s", retryable=True, kind="timeout") from None
+        finally:
+            if not call.done():
+                call.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await call
+
+    async def _recover_inflight(self, state: RunState, after_seq: int) -> str:
+        """Reconcile the step that was executing when the run was interrupted with what the event log
+        proves happened, so recovery never repeats a side effect. Returns how it was handled."""
+        after = await self.repos.events.list(self.run.id, after_seq=after_seq)
+        for e in after:  # model calls after the checkpoint were paid for but are missing from its totals
+            if e.type == EventType.MODEL_CALLED:
+                state.tokens_in += e.payload.get("tokens_in", 0)
+                state.tokens_out += e.payload.get("tokens_out", 0)
+        if state.history and state.history[-1]["outcome"].get("status") == "final":
+            return await self._finish_recorded_final(state)
+        step = state.step + 1
+        evs = [e for e in after if e.step == step]
+        if not evs:
+            return "none"
+        last = {e.type: e for e in evs}
+        span = next((e.span_id for e in evs if e.type == EventType.STEP_STARTED), None) or new_id("span")
+        started = last.get(EventType.TOOL_STARTED)
+
+        def count_call(tool: str, ok: bool, args: dict[str, Any]) -> None:
+            ex = ExecState(**state.exec)
+            ex.tool_calls += 1
+            ex.calls_by_tool[tool] = ex.calls_by_tool.get(tool, 0) + 1
+            if not ok:
+                sig = call_signature(tool, args)
+                ex.failures[sig] = ex.failures.get(sig, 0) + 1
+            state.exec = asdict(ex)
+
+        if EventType.STEP_FINISHED in last:  # interrupted between step.finished and its checkpoint
+            p = last[EventType.STEP_FINISHED].payload
+            outcome = p.get("outcome", {})
+            if started is not None:
+                count_call(started.payload["tool"], outcome.get("status") == "ok", started.payload.get("args", {}))
+            state.history.append({"step": step, "action": p["action"], "outcome": outcome})
+            state.step = step
+            await self._checkpoint(state)
+            if outcome.get("status") == "final":
+                return await self._finish_recorded_final(state)
+            return "step_finished_recorded"
+
+        if EventType.APPROVAL_REQUESTED in last:  # interrupted before the pause was persisted
+            p = last[EventType.APPROVAL_REQUESTED].payload
+            action = ToolCallAction(tool=p["tool"], args=p.get("args", {}), thought=self._recorded_thought(evs))
+            state.pending = {"approval_id": p["approval_id"], "action": action.model_dump(), "step": step,
+                             "span": span}
+            await self._checkpoint(state)
+            await self._set_status(RunStatus.WAITING_APPROVAL, reason="approval requested before interruption")
+            return "approval_pending"
+
+        if started is None:
+            return "redo_step"  # no tool started yet: repeating the step is safe
+        tool, args = started.payload["tool"], started.payload.get("args", {})
+        action = ToolCallAction(tool=tool, args=args, thought=self._recorded_thought(evs))
+        done = next((e for e in evs if e.type in (EventType.TOOL_FINISHED, EventType.TOOL_FAILED)
+                     and e.span_id == started.span_id), None)
+        if done is not None:  # the tool completed: reuse its recorded result
+            ok = done.type == EventType.TOOL_FINISHED
+            outcome = ToolOutcome(status="ok" if ok else "error", result=done.payload.get("result"),
+                                  error=done.payload.get("error"), attempts=done.payload.get("attempts", 1))
+            count_call(tool, ok, args)
+            await self._finish_step(state, step, span, action, outcome)
+            return "tool_result_recorded"
+        if not started.payload.get("side_effect"):
+            return "redo_step"  # an interrupted read-only call is safe to repeat
+        await self.events.emit(
+            EventType.GUARD_TRIGGERED,
+            {"guard": "unsafe_reexecution", "tool": tool, "args": args,
+             "reason": "side-effecting call was interrupted; its outcome is unknown"},
+            step=step, parent_span_id=span,
+        )
+        count_call(tool, False, args)  # it may have taken effect, so it counts against per-run limits
+        outcome = ToolOutcome(
+            status="error", attempts=1,
+            error=f"{tool} was interrupted while running; it may or may not have taken effect, so it was NOT "
+                  "re-executed. Do not repeat it; escalate so a human can verify.",
+        )
+        await self._finish_step(state, step, span, action, outcome)
+        return "side_effect_unknown"
+
+    async def _finish_recorded_final(self, state: RunState) -> str:
+        action = FinalAnswerAction.model_validate(state.history[-1]["action"])
+        await self._terminate(RunStatus.SUCCEEDED, state, result={
+            "answer": action.answer, "evidence": action.evidence, "thought": action.thought})
+        return "final_answer_recorded"
+
+    @staticmethod
+    def _recorded_thought(evs: list) -> str:
+        for e in reversed(evs):
+            if e.type == EventType.MODEL_CALLED:
+                try:
+                    return parse_action(e.payload.get("response", "")).thought
+                except ModelOutputError:
+                    return ""
+        return ""
 
     async def _checkpoint(self, state: RunState) -> None:
         await self.repos.runs.save_checkpoint(self.run.id, state.step, self.events.seq + 1, asdict(state))

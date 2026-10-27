@@ -61,5 +61,14 @@ rules:
   shown to the model.
 - **Budgets**: steps, tokens, wall-clock time and tool calls, each enforced with a recorded
   `budget.exceeded` event.
+- **Claim checks** (`AgentSpec.claim_checks`): a final answer matching `answer_regex` is accepted
+  only if `requires_tool` succeeded earlier in the run. Otherwise the runtime records
+  `guard.triggered` (`unsupported_claim`) and sends the model back to act, within the
+  `max_retries` repair budget; a model that keeps claiming fails the run. The refund agent uses it so
+  `APPROVED` always means `refund.issue` returned ok. Small open models (qwen3:4b in the live suite)
+  routinely announce an approval before issuing the refund.
+- **Crash safety**: a side-effecting tool call interrupted by a crash is never re-executed during
+  recovery, and still counts toward `max_calls_per_run` rules (see
+  [architecture](architecture.md#run-lifecycle)).
 
 The security test suite (`tests/security`) asserts each of these properties.

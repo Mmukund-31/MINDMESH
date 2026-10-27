@@ -11,6 +11,10 @@
    - Schema changes: edit `storage/orm.py`, then `alembic revision --autogenerate -m "…"`; review the script
      (the migration tests fail if migrations and ORM drift apart)
    - Studio: `npm run typecheck && npm test`; end-to-end: `npx playwright test`
+   - Runtime changes: also run the live suite, which drives the refund scenario with a genuine model
+     (`ollama pull qwen3:4b`, then `pytest -m ollama tests/live`; choose another model with
+     `MINDMESH_LIVE_MODEL`). It covers policy enforcement, approvals, timeouts, retries, cancellation,
+     crash recovery and safe replay, and writes a proof report to `bench/results/live/`.
 3. Keep the core invariants:
    - every status change goes through `core.state.transition()`
    - tools execute only via `runtime.executor.ToolExecutor`

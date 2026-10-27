@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from pydantic import ValidationError
@@ -75,15 +75,15 @@ def build_messages(
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
 
-def _extract_json(text: str) -> Any:
+def _json_candidates(text: str) -> Iterator[Any]:
+    """Parsed JSON values in the order a model most likely meant them: the whole reply, fenced blocks,
+    then every balanced ``{...}`` span (models often quote the task input before their action)."""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-    m = _FENCE.search(text)
-    if m:
-        text = m.group(1).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+    for chunk in [text, *(m.strip() for m in _FENCE.findall(text))]:
+        try:
+            yield json.loads(chunk)
+        except json.JSONDecodeError:
+            pass
     start = text.find("{")
     while start != -1:
         depth = 0
@@ -94,17 +94,25 @@ def _extract_json(text: str) -> Any:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start : i + 1])
+                        yield json.loads(text[start : i + 1])
                     except json.JSONDecodeError:
-                        break
+                        pass
+                    break
         start = text.find("{", start + 1)
-    raise ModelOutputError("no JSON object found in model output")
+
+
+def _looks_like_action(v: Any) -> bool:
+    return isinstance(v, dict) and (v.get("type") in ("tool_call", "final_answer") or "tool" in v or "answer" in v)
 
 
 def parse_action(text: str) -> AgentAction:
-    data = _extract_json(text)
-    if not isinstance(data, dict):
-        raise ModelOutputError("model output JSON must be an object")
+    candidates = list(_json_candidates(text))
+    data = next((c for c in candidates if _looks_like_action(c)), None)
+    if data is None:
+        if not candidates:
+            raise ModelOutputError("no JSON object found in model output")
+        raise ModelOutputError("no action object found in model output (JSON present, but without "
+                               '"type": "tool_call" or "final_answer")')
     kind = data.get("type") or ("tool_call" if "tool" in data else "final_answer" if "answer" in data else None)
     try:
         if kind == "tool_call":
