@@ -6,7 +6,13 @@ import httpx
 import pytest
 
 from mindmesh import MindMesh
-from mindmesh.core import clock
+from mindmesh.core import aio, clock
+
+if aio.NEEDS_SELECTOR_LOOP:
+
+    def pytest_asyncio_loop_factories(config, item):
+        # psycopg's async driver cannot use Windows' default ProactorEventLoop
+        return {"selector": aio.new_event_loop}
 
 
 @pytest.fixture(autouse=True)
@@ -16,8 +22,18 @@ def _unfreeze_clock():
 
 
 @pytest.fixture
-def db_url(tmp_path) -> str:
-    return os.environ.get("MINDMESH_TEST_DATABASE_URL") or f"sqlite:///{tmp_path / 'test.db'}"
+async def db_url(tmp_path) -> str:
+    """A fresh SQLite file per test, or, with MINDMESH_TEST_DATABASE_URL, the shared server database reset to
+    an empty schema (so the whole suite can run against PostgreSQL)."""
+    url = os.environ.get("MINDMESH_TEST_DATABASE_URL")
+    if not url:
+        return f"sqlite:///{tmp_path / 'test.db'}"
+    from mindmesh.storage.db import Database
+
+    db = Database(url)
+    await db.drop_all()
+    await db.dispose()
+    return url
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """Runs against a real PostgreSQL + pgvector server (the docker-compose service, or CI's).
 
     docker compose up -d postgres
-    MINDMESH_TEST_DATABASE_URL=postgresql://mindmesh:mindmesh@localhost:5432/mindmesh pytest -m postgres
+    MINDMESH_TEST_DATABASE_URL=postgresql://mindmesh:mindmesh@127.0.0.1:5432/mindmesh pytest -m postgres
 
 Each test starts from an empty schema built by the Alembic migrations.
 """

@@ -77,8 +77,8 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      MINDMESH_TEST_DATABASE_URL: postgresql://mindmesh:mindmesh@localhost:5432/mindmesh
-      MINDMESH_DATABASE_URL: postgresql://mindmesh:mindmesh@localhost:5432/mindmesh
+      MINDMESH_TEST_DATABASE_URL: postgresql://mindmesh:mindmesh@127.0.0.1:5432/mindmesh
+      MINDMESH_DATABASE_URL: postgresql://mindmesh:mindmesh@127.0.0.1:5432/mindmesh
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -96,6 +96,9 @@ jobs:
 
       - name: Integration tests (migrations, pgvector search, isolation, persistence)
         run: pytest -m postgres -v
+
+      - name: Entire test suite on PostgreSQL
+        run: pytest -q -m "not ollama"
 
       - name: Persistence across a database server restart
         run: |

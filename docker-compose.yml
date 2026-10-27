@@ -17,7 +17,7 @@ services:
       POSTGRES_USER: mindmesh
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mindmesh}
       POSTGRES_DB: mindmesh
-    ports: ["127.0.0.1:5432:5432"]
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5432}:5432"]   # POSTGRES_PORT=5433 if 5432 is taken
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mindmesh -d mindmesh"]
@@ -52,12 +52,12 @@ services:
       MINDMESH_EMBEDDER: ${MINDMESH_EMBEDDER:-hashing:384}
       OLLAMA_BASE_URL: http://ollama:11434
       MINDMESH_CORS_ORIGINS: ${MINDMESH_CORS_ORIGINS:-http://localhost:5173}
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
 
   studio:
     build: { context: ./studio }
     depends_on: [server]
-    ports: ["5173:80"]
+    ports: ["127.0.0.1:5173:80"]
 
 volumes:
   pgdata:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -10,6 +9,8 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
+from .core import aio
 
 app = typer.Typer(help="MINDMESH: reliability and control plane for AI agents.", no_args_is_help=True)
 demo_app = typer.Typer(help="Signature demonstrations.", no_args_is_help=True)
@@ -35,7 +36,8 @@ def serve(
     except ConfigError as e:
         console.print(f"[red]{e}[/]")
         raise typer.Exit(2) from e
-    uvicorn.run("mindmesh.server.app:main_app", factory=True, host=host, port=port, reload=reload)
+    uvicorn.run("mindmesh.server.app:main_app", factory=True, host=host, port=port, reload=reload,
+                loop=aio.uvicorn_loop())
 
 
 def _mm(database_url: str | None, project: str):
@@ -71,7 +73,7 @@ def demo_refund(
     fresh: bool = typer.Option(True, help="Clear this project's memories/policies first"),
 ):
     """Fail -> diagnose (trace + context receipt) -> fix memory -> rerun -> compare -> benchmark."""
-    asyncio.run(_demo_refund(database_url, project, model, fresh))
+    aio.run(_demo_refund(database_url, project, model, fresh))
 
 
 async def _demo_refund(database_url, project, model, fresh):
@@ -156,7 +158,7 @@ def demo_seed(
     model: str = typer.Option(None, envvar="MINDMESH_MODEL"),
 ):
     """Seed the broken refund scenario + a few runs and a workflow so Studio has data to explore."""
-    asyncio.run(_seed(database_url, project, model))
+    aio.run(_seed(database_url, project, model))
 
 
 async def _seed(database_url, project, model):
@@ -215,7 +217,7 @@ def bench(
             if mm:
                 await mm.close()
 
-    asyncio.run(go())
+    aio.run(go())
 
 
 @app.command("create-key")
@@ -234,7 +236,7 @@ def create_key(
         finally:
             await mm.close()
 
-    asyncio.run(go())
+    aio.run(go())
 
 
 @app.command("revoke-key")
@@ -251,7 +253,7 @@ def revoke_key(
         finally:
             await db.dispose()
 
-    if not asyncio.run(go()):
+    if not aio.run(go()):
         console.print("[yellow]no such key[/]")
         raise typer.Exit(1)
     console.print("[green]revoked.[/]")
@@ -278,7 +280,7 @@ def db_upgrade(
         finally:
             await db.dispose()
 
-    console.print(f"database at revision [bold]{asyncio.run(go())}[/]")
+    console.print(f"database at revision [bold]{aio.run(go())}[/]")
 
 
 @db_app.command("current")
@@ -293,7 +295,7 @@ def db_current(database_url: str = typer.Option(None, envvar="MINDMESH_DATABASE_
         finally:
             await db.dispose()
 
-    current, head = asyncio.run(go()), head_revision()
+    current, head = aio.run(go()), head_revision()
     console.print(f"current: [bold]{current}[/]  head: [bold]{head}[/]")
     if current != head:
         raise typer.Exit(1)

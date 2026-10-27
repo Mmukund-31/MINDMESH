@@ -56,6 +56,12 @@ class Database:
         kwargs: dict = {"echo": echo}
         if self.is_sqlite:
             kwargs["connect_args"] = {"timeout": 30}
+        elif self.is_postgres:
+            # Fail instead of hanging on an unreachable address (e.g. `localhost` resolving to an IPv6
+            # address nothing answers on; libpq then tries the next one), and drop connections that died
+            # while pooled, so the server survives a database restart.
+            kwargs["connect_args"] = {"connect_timeout": 10}
+            kwargs["pool_pre_ping"] = True
         self.engine: AsyncEngine = create_async_engine(self.url, **kwargs)
         if self.is_sqlite:
             event.listen(self.engine.sync_engine, "connect", _sqlite_pragmas)

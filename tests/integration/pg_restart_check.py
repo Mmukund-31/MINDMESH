@@ -9,13 +9,13 @@ Reads MINDMESH_TEST_DATABASE_URL. Expectations are kept in ``pg_restart_state.js
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
 from pathlib import Path
 
 from mindmesh import MindMesh
+from mindmesh.core import aio
 from mindmesh.demo import refund
 from mindmesh.storage.db import head_revision
 
@@ -61,11 +61,11 @@ def main() -> None:
         sys.exit("usage: MINDMESH_TEST_DATABASE_URL=postgresql://… python -m tests.integration.pg_restart_check "
                  "write|verify")
     if sys.argv[1] == "write":
-        state = asyncio.run(write(url))
+        state = aio.run(write(url))
         STATE.write_text(json.dumps(state))
         print(f"wrote run {state['run_id']}")
     else:
-        asyncio.run(verify(url, json.loads(STATE.read_text())))
+        aio.run(verify(url, json.loads(STATE.read_text())))
         print("all data present after restart")
 
 

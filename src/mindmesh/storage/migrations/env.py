@@ -6,7 +6,6 @@ The ``alembic`` CLI (``alembic.ini`` at the repository root) connects to ``MINDM
 
 from __future__ import annotations
 
-import asyncio
 import os
 from logging.config import fileConfig
 
@@ -15,6 +14,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from mindmesh.core import aio
 from mindmesh.storage.db import normalize_url
 from mindmesh.storage.orm import Base
 
@@ -67,7 +67,7 @@ def run_migrations_online() -> None:
     if connection is not None:
         _run(connection)
     else:
-        asyncio.run(_run_async(_url()))
+        aio.run(_run_async(_url()))
 
 
 if context.is_offline_mode():
